@@ -22,7 +22,7 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 
 ## CI (GitHub Actions)
 
-`.github/workflows/ci.yml` প্রতিটা PR-এ এবং `main`-এ push হলে Node 22-এ (`.nvmrc` থেকে) চালায়: `npm ci` → lint → type-check → test → build। এই চেক সবুজ না হলে merge নয়। নতুন চেক বা script যোগ হলে workflow-ও হালনাগাদ করো।
+`.github/workflows/ci.yml` প্রতিটা PR-এ এবং `main`-এ push হলে Node 22-এ (`.nvmrc` থেকে) PostgreSQL 18 service-সহ চালায়: `npm ci` → `db:deploy` → `db:check` → lint → type-check → test → build। এই চেক সবুজ না হলে merge নয়। নতুন চেক বা script যোগ হলে workflow-ও হালনাগাদ করো।
 
 ## প্রতিটা কাজের পর (বাধ্যতামূলক)
 
@@ -33,6 +33,13 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 5. `npm run build`
 
 পাঁচটাই পাস না করলে কাজ শেষ নয়, commit নয়।
+
+## ডাটাবেস
+
+- Schema বদলালে: `npm run db:migrate` দিয়ে নতুন migration বানাও; পুরনো migration ফাইল কখনো সম্পাদনা নয়। CHECK constraint migration SQL-এ হাতে লেখো।
+- টেস্ট আসল ডাটাবেসে চালাও: `DATABASE_URL` সেট করে `npm run db:deploy`, তারপর `npm test`।
+- `src/generated/` git-এ নয়; `PrismaService` (`src/core/database`) ছাড়া অন্য কোথাও `PrismaClient` বানানো নয়।
+- Seed-এ কোনো ইউজার বা পাসওয়ার্ড নয়।
 
 ## পারফরম্যান্স চেকলিস্ট (প্রপোজাল সেকশন ৯.৬): প্রতিটা feature শেষে
 
@@ -68,4 +75,4 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 
 ## কমান্ড
 
-`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format`
+`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:check`

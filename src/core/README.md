@@ -10,5 +10,8 @@
 
 ## এখন যা আছে
 
-- `config/`: environment variable ভ্যালিডেশন (`PORT`, `NODE_ENV`, `CORS_ORIGIN`)।
-- `health/`: `GET /api/v1/health`।
+- `config/`: environment variable ভ্যালিডেশন (`PORT`, `NODE_ENV`, `CORS_ORIGIN`, `DATABASE_URL`, `DIRECT_URL`)।
+- `database/`: `DatabaseModule` (global) ও `PrismaService`। একটাই Prisma client ও connection pool। অন্য service-এ `PrismaService` inject করে `prisma.client` ব্যবহার করো।
+- `health/`: `GET /api/v1/health` (liveness, কোনো I/O নয়) ও `GET /api/v1/health/ready` (ডাটাবেস চেক)।
+
+Core টেবিল (`prisma/schema.prisma`): `businesses`, `users`, `roles`, `user_business_access`।
