@@ -126,10 +126,10 @@
 - ডাটাবেস-টেস্ট `DATABASE_URL` থাকলে চলে; না থাকলে লোকালে বাদ পড়ে, কিন্তু CI-তে (`CI` সেট) ব্যর্থ হয়, যাতে চুপচাপ বাদ পড়ে সবুজ না হয়।
 - CI: `postgres:18` service; `db:deploy` (খালি ডাটাবেসে) → `db:check` → lint → type-check → test → build।
 
-### লোকালে যাচাই বাকি (macOS 12.7.6)
+### macOS 12.7.6-এ যাচাই সম্পন্ন (২০২৬-১১-১৬)
 
 | প্যাকেজ | কোন কমান্ডে লাগে | অবস্থা |
 |---|---|---|
-| `@prisma/engines` (schema engine) | `npm run db:deploy`, `db:migrate`, `db:status`, `db:check` | যাচাই বাকি |
+| `@prisma/engines` (schema engine) | `npm run db:deploy`, `db:migrate`, `db:status`, `db:check` | macOS 12.7.6-এ যাচাই সম্পন্ন |
 
-অ্যাপ চালানো ও seed-এ এই বাইনারি লাগে না (Prisma 7-এর client খাঁটি JS/WASM, `pg` খাঁটি JS)। `prisma generate` Mac-এ `npm install`-এর শেষে চলবে, তখনই যাচাই হয়ে যাবে। ব্যর্থ হলে বিকল্প পথ README-র "macOS 12-এ `npm run db:deploy` ব্যর্থ হলে" অংশে।
+ডেভেলপারের Mac-এ (macOS 12.7.6) সব ধাপ সফল: `npm install` (শেষে `prisma generate`), Neon dev branch-এ `npm run db:deploy`, `npm run db:seed`, `npm run start:dev`, এবং `/api/v1/health/ready` → `database: up`। README-র "macOS 12-এ `npm run db:deploy` ব্যর্থ হলে" অংশের বিকল্প পথ দরকার পড়েনি; ভবিষ্যতে সমস্যা হলে কাজে লাগবে বলে রাখা হয়েছে।

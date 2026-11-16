@@ -105,6 +105,8 @@ Neon ড্যাশবোর্ডে আপনার **dev branch**-এর "Co
 
 ### macOS 12-এ `npm run db:deploy` ব্যর্থ হলে
 
+> macOS 12.7.6-এ `npm run db:deploy` চলে বলে যাচাই হয়েছে (২০২৬-১১-১৬)। নিচের পথগুলো শুধু ভবিষ্যতে সমস্যা হলে।
+
 `prisma migrate` একটা নেটিভ বাইনারি (schema engine) চালায়, যা পুরনো macOS-এ না-ও চলতে পারে। অ্যাপ চালাতে ওই বাইনারি লাগে না, শুধু migration-এ লাগে। ব্যর্থ হলে বিকল্প:
 
 1. **Neon SQL Editor (সবচেয়ে সহজ):** Neon ড্যাশবোর্ডের SQL Editor-এ dev branch বেছে `prisma/migrations/` ফোল্ডারের প্রতিটা `migration.sql`-এর লেখা তারিখের ক্রমে পেস্ট করে চালান। তারপর Mac-এ `npm run db:seed` চালান (seed খাঁটি JavaScript, ওই বাইনারি লাগে না)।
