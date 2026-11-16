@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# environment files: never commit real values
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/
