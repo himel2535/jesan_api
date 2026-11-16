@@ -15,12 +15,14 @@ describe('validateEnv', () => {
       PORT: '5000',
       NODE_ENV: 'production',
       CORS_ORIGIN: 'https://example.com',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
       PATH: '/usr/bin',
     });
     expect(env).toEqual({
       PORT: 5000,
       NODE_ENV: NodeEnv.Production,
       CORS_ORIGIN: 'https://example.com',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
     });
   });
 
@@ -32,6 +34,35 @@ describe('validateEnv', () => {
     ['CORS_ORIGIN', { CORS_ORIGIN: '' }],
   ])('rejects an invalid %s', (name, input) => {
     expect(() => validateEnv(input)).toThrow(name);
+  });
+});
+
+describe('validateEnv: database URLs', () => {
+  const url = 'postgresql://user:pass@localhost:5432/db';
+
+  it('leaves the database optional outside production', () => {
+    expect(validateEnv({ NODE_ENV: 'development' }).DATABASE_URL).toBeUndefined();
+    expect(validateEnv({ NODE_ENV: 'test', DATABASE_URL: '' }).DATABASE_URL).toBeUndefined();
+  });
+
+  it('accepts postgresql URLs', () => {
+    const env = validateEnv({ DATABASE_URL: url, DIRECT_URL: url });
+    expect(env.DATABASE_URL).toBe(url);
+    expect(env.DIRECT_URL).toBe(url);
+  });
+
+  it('requires DATABASE_URL in production', () => {
+    expect(() => validateEnv({ NODE_ENV: 'production' })).toThrow('DATABASE_URL is required');
+    expect(() => validateEnv({ NODE_ENV: 'production', DATABASE_URL: '' })).toThrow(
+      'DATABASE_URL is required',
+    );
+    expect(validateEnv({ NODE_ENV: 'production', DATABASE_URL: url }).DATABASE_URL).toBe(url);
+  });
+
+  it('rejects a non-postgres URL without echoing its value', () => {
+    const secret = 'mysql://user:top-secret@host/db';
+    expect(() => validateEnv({ DATABASE_URL: secret })).toThrow('DATABASE_URL must be');
+    expect(() => validateEnv({ DATABASE_URL: secret })).not.toThrow('top-secret');
   });
 });
 
