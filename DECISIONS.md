@@ -66,3 +66,8 @@
 ### জানা সমস্যা
 
 - `npm audit`: ৭টা moderate, সবই dev-only (`typescript-eslint` → `minimatch`)। সর্বশেষ typescript-eslint-এও ঠিক হয়নি; প্রস্তাবিত "fix" হলো পুরনো ভার্সনে নামা, তাই করা হয়নি। `npm audit --omit=dev` = ০। পরের রিলিজে আবার দেখা হবে।
+
+## ২০২৬-১১-১৬: CI ও কাজের ধরন
+
+- GitHub Actions (`.github/workflows/ci.yml`): প্রতিটা PR ও `main`-এ push-এ lint, type-check, test, build। Node ভার্সন `.nvmrc` থেকে পড়া হয়, যাতে লোকাল, ক্লাউড ও CI এক থাকে। `actions/checkout@v7`, `actions/setup-node@v7` (সর্বশেষ major)। Workflow-এর অনুমতি শুধু `contents: read`।
+- Merge পদ্ধতি: চেক সবুজ হলে `main`-এ squash merge, তারপর branch মুছে ফেলা (মালিকের নির্দেশ, `CLAUDE.md`-র "কাজের ধরন")।
