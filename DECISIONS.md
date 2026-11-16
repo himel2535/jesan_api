@@ -133,3 +133,86 @@
 | `@prisma/engines` (schema engine) | `npm run db:deploy`, `db:migrate`, `db:status`, `db:check` | macOS 12.7.6-এ যাচাই সম্পন্ন |
 
 ডেভেলপারের Mac-এ (macOS 12.7.6) সব ধাপ সফল: `npm install` (শেষে `prisma generate`), Neon dev branch-এ `npm run db:deploy`, `npm run db:seed`, `npm run start:dev`, এবং `/api/v1/health/ready` → `database: up`। README-র "macOS 12-এ `npm run db:deploy` ব্যর্থ হলে" অংশের বিকল্প পথ দরকার পড়েনি; ভবিষ্যতে সমস্যা হলে কাজে লাগবে বলে রাখা হয়েছে।
+
+## ২০২৬-১১-১৬: লগইন, রোল ও অনুমতি (Step 3a)
+
+### ভার্সন (exact pin, npm `latest` ট্যাগ, কোনো RC নয়)
+
+| প্যাকেজ | ভার্সন | নোট |
+|---|---|---|
+| @node-rs/argon2 | 2.2.2 | পাসওয়ার্ড hashing; নিচের "পাসওয়ার্ড লাইব্রেরি" দেখুন |
+| @nestjs/jwt | 12.0.5 | access token |
+| @nestjs/throttler | 6.8.0 | লগইনে rate limit (NestJS 12 সাপোর্ট করে) |
+| cookie-parser / @types/cookie-parser | 1.4.7 / 1.4.10 | |
+| helmet | 8.3.0 | নিরাপত্তা header |
+
+Passport নেওয়া হয়নি: গার্ড নিজে লেখা, কম dependency।
+
+### পাসওয়ার্ড লাইব্রেরি: `@node-rs/argon2` (প্ল্যানের `argon2` প্যাকেজ নয়)
+
+- প্ল্যানে `argon2` 0.45.2 ছিল, সাথে শর্ত ছিল "macOS 12-এ না চললে বিকল্প"। প্যাকেজ পরীক্ষা করে দেখা গেল `argon2`-র সাথে আসা আগে-থেকে-তৈরি বাইনারি আছে শুধু `darwin-arm64`, linux, windows ও freebsd-এর; **`darwin-x64` (Intel Mac) নেই**। macOS 12.7.6 যে Mac-এর শেষ সংস্করণ, সেটা Intel Mac হওয়ার সম্ভাবনাই বেশি; তাহলে `npm install` C++ compiler দিয়ে compile করতে যেত, আর ব্যর্থ হলে পুরো `npm install` ভেঙে যেত।
+- `@node-rs/argon2` 2.2.2-র macOS Intel বাইনারি আগে থেকে তৈরি; বাইনারি পরীক্ষা করে দেখা গেছে সেটা macOS 10.13 বা নতুনে চলে (`LC_VERSION_MIN_MACOSX` = 10.13, x86_64)। compile লাগে না, Node ভার্সনের সাথে বাঁধা নয় (Node-API), আর `argon2`-র মতোই থ্রেড-পুলে চলে বলে অনুরোধ আটকায় না।
+- algorithm একই (argon2id), প্যারামিটার একই (OWASP নূন্যতম: 19 MiB, 2 pass, 1 lane), hash-এর ফরম্যাট একই (`$argon2id$v=19$m=19456,t=2,p=1$...`)। তাই ভবিষ্যতে অন্য লাইব্রেরিতে গেলেও আগের পাসওয়ার্ড কাজ করবে।
+- **Mac-এ যাচাই বাকি:** `npm install`, `npm run admin:create`, লগইন (নিচের তালিকা)। না চললে বিকল্প: বিশুদ্ধ WebAssembly argon2id (`hash-wasm`)। তাতে কোনো নেটিভ বাইনারি লাগে না, কিন্তু hash চলার সময় event loop আটকে থাকে (প্রতি লগইনে প্রায় ১০০ ms), তাই লগইনের rate limit থাকা অবস্থায় গ্রহণযোগ্য।
+
+### মালিক-স্তর: platform owner বনাম ব্যবসা-স্তরের `owner` রোল (মালিকের নির্দেশ)
+
+- **owner-only অনুমতি পায় শুধু `users.is_platform_owner = true` ইউজার।** তালিকা: `commission.view`, `commission.manage`, `profit.view`, `settings.manage`, `users.manage`, `roles.manage`, `audit.view`। `commission.` ও `profit.` দিয়ে শুরু যেকোনো অনুমতি `ownerOnly` না হলে অ্যাপ চালুই হয় না।
+- platform owner সব ব্যবসায় ঢুকতে পারেন (access-এর সারি লাগে না, তাই নতুন ব্যবসা যোগ করলেও নিজে থেকে পান) এবং সব অনুমতির মালিক।
+- **ব্যবসা-স্তরের `owner` রোল** (যেমন কোনো অংশীদার, এক ব্যবসায়) পায় সব **owner-only-বহির্ভূত** অনুমতি; কমিশন, লাভ ও ব্যবস্থাপনার অনুমতি নয়। তাই ইউজার তৈরি, রোলের অনুমতি বদল ও Settings শুধু platform owner করতে পারেন।
+- `owner` রোলের অনুমতি রানটাইমে হিসাব করা ("সব সক্রিয় ও owner-only নয়"), `role_permissions`-এ এর সারি থাকে না। ফলে নতুন অনুমতি যোগ হলে আলাদা সিঙ্ক লাগে না, আর এই রোলের অনুমতি বদলানো যায় না (API 400 দেয়)। এটা আমার ছোট সিদ্ধান্ত।
+- **তিন স্তরে বাধ্যতা:** (১) নিবন্ধনে (অ্যাপ চালুর সময় ভুল ঘোষণা ধরা পড়ে), (২) API-তে (owner-only অনুমতি রোলকে দিতে গেলে 400), (৩) ডাটাবেসে: `role_permissions`-এর composite foreign key `(permission_key, permission_owner_only)` → `permissions(key, owner_only)` এবং CHECK `permission_owner_only = false`। সরাসরি SQL-এও owner-only সারি ঢোকে না। টেস্টে দুটো দিকই যাচাই হয়।
+- টেস্ট (`test/permissions.e2e-spec.ts`): platform owner সব পায়; `owner` রোল owner-only সাতটা পায় না কিন্তু বাকি সব পায়; ম্যানেজার, হিসাবরক্ষক ও বিক্রয়কর্মী কোনোটাই পায় না।
+
+### ডিফল্ট অনুমতি (মালিক Settings থেকে বদলাতে পারবেন)
+
+| রোল | ডিফল্ট |
+|---|---|
+| manager | `settings.view`, `users.view`, `product.view/manage`, `product.cost.view`, `customer.view/manage`, `customer.due.view`, `collection.create`, `supplier.view`, `purchase.view/create`, `stock.view/adjust`, `sale.create`, `sale.view.all` |
+| accountant | `settings.view`, `customer.view`, `customer.due.view`, `collection.create`, `ledger.view`, `ledger.entry.create`, `payment.create`, `expense.create` |
+| salesman | `product.view`, `customer.view/manage`, `stock.view`, `sale.create`, `sale.view.own` |
+| কেউ না | `sale.void`, `purchase.void`, `summary.finance.view`, `reports.finance.view` (মালিক চাইলে দেবেন) |
+
+- বিক্রয়কর্মী `stock.view` পায় (শুধু পরিমাণ); কেনা-দাম (`product.cost.view`), টাকার সারাংশ, কমিশন বা লাভ নয়। এই তালিকা প্রাথমিক; প্রতিটা ফিচারের ধাপে চূড়ান্ত হবে।
+- ডিফল্ট বসে অ্যাপ চালুর সময়: নতুন অনুমতির জন্য, আর যে ব্যবসার কোনো grant-ই নেই তার জন্য (নতুন ব্যবসা)। মালিকের আগের বদল কখনো ওভাররাইট হয় না। ব্যবসা তৈরির কোডে `PermissionSyncService.applyDefaultsToBusiness(id)` ডাকতে হবে। সীমা: কোনো ব্যবসার *সব* রোল থেকে *সব* অনুমতি মালিক নিজে সরিয়ে দিলে পরের চালুতে ডিফল্ট ফিরে আসবে (বাস্তবে ঘটার কথা নয়)।
+- ব্যবসার route `b/:businessSlug/...`; কোনো অনুমতি বা `@AnyBusinessMember()` না লিখলে সবার জন্য 403 (ভুলে খুলে যাওয়া আটকাতে)।
+
+### Token, cookie ও সেশন
+
+- Access token JWT (HS256), ১৫ মিনিট, ভেতরে শুধু ইউজার id ও সেশন id; অনুমতি টোকেনে নেই, তাই অনুমতি বদলালে সঙ্গে সঙ্গে কার্যকর। Refresh token এলোমেলো ২৫৬-বিট, ৩০ দিন, ডাটাবেসে শুধু SHA-256।
+- দুটোই httpOnly cookie (`SameSite=Lax`; production-এ `Secure`; refresh cookie শুধু `/api/v1/auth` পথে)। কারণ: পাতার JavaScript (XSS) token চুরি করতে পারে না, আর Next.js সার্ভার থেকেও যায়। `Authorization: Bearer` গ্রহণযোগ্য, তবে token response body-তে দেওয়া হয় না; মোবাইল অ্যাপের ধাপে আলাদা পথ যোগ হবে।
+- **ডিপ্লয়ের শর্ত:** cookie কাজ করতে web ও API একই সাইটে থাকতে হবে: কাস্টম ডোমেইনের সাবডোমেইন (`app.` ও `api.`, `COOKIE_DOMAIN` সহ) অথবা Next.js proxy। `vercel.app` + `railway.app`-এর মতো আলাদা সাইটে cookie যায় না; `SameSite=None` দিয়ে এটা ঘোরানো হবে না (CSRF সুরক্ষা দুর্বল হয়)। লোকালে `localhost:3000` ও `localhost:4000` একই সাইট (পোর্ট ধরা হয় না), তাই কাজ করে। ধাপগুলো README-তে।
+- CSRF: cookie দিয়ে লগইন করা অবস্থায় বদলানোর অনুরোধে `Origin` header `CORS_ORIGIN`-এর তালিকায় না থাকলে 403; `Origin` না থাকলে (curl) চলে।
+- Refresh rotation: প্রতিবার নতুন token; পুরনো token ১০ সেকেন্ডের মধ্যে ফিরলে (দুই ট্যাব) শুধু প্রত্যাখ্যান, তার পরে ফিরলে চুরি ধরে পুরো সেশন বাতিল ও audit-এ লেখা। দুই অনুরোধ একসাথে একই token ঘোরাতে গেলে শর্তযুক্ত UPDATE-এ একটাই জেতে।
+- Logout, পাসওয়ার্ড বদল বা রিসেট, ইউজার নিষ্ক্রিয় করা: সেশন DB-তে বাতিল এবং সেশন id মেমোরির revoke-তালিকায় (১৬ মিনিট), তাই access token-ও সঙ্গে সঙ্গে অকেজো। চালুর সময় গত ১৬ মিনিটে বাতিল সেশন DB থেকে তালিকায় তোলা হয়।
+- অনুমতি যাচাইয়ে প্রতি অনুরোধে ডাটাবেস query নেই: (ইউজার, ব্যবসা) অনুযায়ী ৬০ সেকেন্ডের মেমোরি cache, রোল/অনুমতি/অ্যাক্সেস/নিষ্ক্রিয় করলে সঙ্গে সঙ্গে মোছে। **ধরে নেওয়া হয়েছে API একটাই instance-এ চলে;** একাধিক হলে cache ও revoke-তালিকা Redis-এ নিতে হবে (কোডে বদলের জায়গা একটাই: `AccessResolver` ও `RevocationList`)।
+
+### লগইনের নিরাপত্তা
+
+- একটাই `identifier` ফিল্ড (email বা phone)। email ছোট হাতের অক্ষরে; phone E.164-এ (`01XXXXXXXXX` → `+8801XXXXXXXXX`)।
+- সব ব্যর্থতায় (অজানা ইউজার, ভুল পাসওয়ার্ড, নিষ্ক্রিয়, লক) একই 401 ও বার্তা; অজানা ইউজারেও একটা নকল hash যাচাই চলে, যাতে সময় দেখে বোঝা না যায়।
+- পরপর ৫ বার ভুলে ১৫ মিনিট লক (audit-এ লেখা)। ঝুঁকি: কেউ ইচ্ছা করে ভুল দিয়ে অন্যের অ্যাকাউন্ট ১৫ মিনিট আটকাতে পারে (লক স্থায়ী নয়, মালিক `reset-password` দিয়ে খুলতে পারেন, platform owner নিজেও ১৫ মিনিট পরে ঢুকতে পারেন)। লক হওয়া ইউজার কারণ জানবে না।
+- এক IP থেকে প্রতি মিনিটে `LOGIN_RATE_LIMIT` (ডিফল্ট ১০) লগইন; তারপর 429। (`TRUST_PROXY` ঠিক না দিলে proxy-র পেছনে সব ইউজার এক IP ধরা হবে।)
+- পাসওয়ার্ড ১০–১২৮ অক্ষর; নিজের email বা phone হওয়া চলবে না; চিহ্ন বা বড় হাতের অক্ষর জোর করা হয় না (NIST-এর পরামর্শ)।
+- `forgot-password` এই ধাপে নেই: মালিক `reset-password` দিয়ে খুলে দেবেন।
+
+### Settings API ও audit
+
+- `GET users` লাগে `users.view` (ম্যানেজারের ডিফল্টে আছে); সব পরিবর্তন `users.manage` (owner-only)। রোলের অনুমতির ছক ও বদল `roles.manage` (owner-only)।
+- ইউজার নিষ্ক্রিয় করা সব ব্যবসায় প্রযোজ্য (`users.is_active` সবার জন্য এক)। platform owner অ্যাকাউন্ট এই API দিয়ে বদলানো যায় না (কমান্ড-লাইনে `admin:create`); নিজেকে নিষ্ক্রিয় করা যায় না। `reset-password` সব সেশন শেষ করে ও লক খোলে।
+- `audit_logs` এই ধাপেই (অনুমতি ও রোলের বদল সবচেয়ে জরুরি লগ)। লেখা হয় বদলের একই transaction-এ: রোলের অনুমতি, ইউজার তৈরি, অ্যাক্সেস দেওয়া/সরানো/রোল বদল, নিষ্ক্রিয়/সক্রিয়, পাসওয়ার্ড রিসেট; এবং `auth.account_locked`, `auth.session_reuse_detected`, `user.password_changed`। কোথাও পাসওয়ার্ড বা hash নেই (টেস্টে যাচাই)। বদলানোর বা মোছার API নেই; ডাটাবেস-স্তরের trigger দিয়ে অপরিবর্তনীয় করা এখনো হয়নি। লগ দেখার API (`audit.view`) পরে।
+
+### প্রথম মালিক অ্যাকাউন্ট
+
+`npm run admin:create` (`prisma/admin-create.mjs`): `ADMIN_EMAIL` বা `ADMIN_PHONE`, `ADMIN_PASSWORD`, `ADMIN_NAME` env থেকে পড়ে `is_platform_owner` ইউজার বানায়। পাসওয়ার্ড কোডে, seed-এ বা লগে কোথাও নেই। ইউজার আগে থেকে থাকলে কিছু বদলায় না। অস্থায়ী ডেভ-ইউজার ব্যবস্থা নেই: লগইন এড়ানোর যেকোনো পথ ঝুঁকি।
+
+### এই ধাপে করা হয়নি
+
+- Prisma Client-এর স্বয়ংক্রিয় `businessId` extension: প্রথম ব্যবসা-ডেটার টেবিলের (Product/Customer) ধাপে, তখন ঠিকমতো পরীক্ষা করা যাবে।
+- forgot-password, token-কে response body-তে দেওয়া (মোবাইল), Redis, audit দেখার API।
+
+### লোকালে যাচাই বাকি (macOS 12.7.6), Step 3a
+
+| প্যাকেজ | কোন কমান্ডে লাগে | অবস্থা |
+|---|---|---|
+| `@node-rs/argon2` (আগে-থেকে-তৈরি Intel বাইনারি, macOS ≥ 10.13) | `npm install`, `npm run admin:create`, লগইন | যাচাই বাকি |

@@ -23,7 +23,8 @@ describe('health endpoints', () => {
       builder.overrideProvider(PrismaService).useValue(fakeDatabase);
     }
     const moduleRef = await builder.compile();
-    app = moduleRef.createNestApplication();
+    // The fake database makes start-up tasks log expected errors; keep the output clean.
+    app = moduleRef.createNestApplication({ logger: false });
     configureApp(app);
     await app.init();
     return app;

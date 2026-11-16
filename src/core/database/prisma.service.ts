@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/client';
@@ -33,10 +33,10 @@ export class PrismaService implements OnModuleDestroy {
     return this.prisma !== null;
   }
 
-  /** The Prisma client. Throws when DATABASE_URL is not configured. */
+  /** The Prisma client. Throws a 503 when DATABASE_URL is not configured. */
   get client(): PrismaClient {
     if (!this.prisma) {
-      throw new Error('Database is not configured: set DATABASE_URL');
+      throw new ServiceUnavailableException('Database is not configured: set DATABASE_URL');
     }
     return this.prisma;
   }

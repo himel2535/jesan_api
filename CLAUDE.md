@@ -41,6 +41,16 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 - `src/generated/` git-এ নয়; `PrismaService` (`src/core/database`) ছাড়া অন্য কোথাও `PrismaClient` বানানো নয়।
 - Seed-এ কোনো ইউজার বা পাসওয়ার্ড নয়।
 
+## লগইন, রোল ও অনুমতি
+
+- সব route ডিফল্টে সুরক্ষিত; `@Public()` শুধু health ও sign-in endpoint-এ।
+- ব্যবসার route `b/:businessSlug/...`; প্রতিটায় `@RequirePermission(...)` বা ইচ্ছা করে `@AnyBusinessMember()`। কিছু না লিখলে 403।
+- নতুন module নিজের অনুমতি registry-তে ঘোষণা করবে। `commission.*` ও `profit.*` অবশ্যই `ownerOnly`; owner-only অনুমতি পায় শুধু `users.is_platform_owner = true` ইউজার। ব্যবসা-স্তরের `owner` রোল পায় সব owner_only-বহির্ভূত অনুমতি।
+- টাকার সংবেদনশীল ফিল্ড সার্ভারে লুকাও (`@VisibleWith` + `@SerializeWith`), শুধু frontend-এ নয়। প্রতিটা নতুন গোপন ফিল্ডে এই ধরনের টেস্ট দাও।
+- পাসওয়ার্ড, token বা hash কখনো লগে, audit-এ বা response-এ নয়। ব্যর্থ লগইনে সবসময় একই বার্তা।
+- অনুমতি বা রোল বদলালে `AccessResolver`-এর cache মোছো (`invalidateBusiness` / `invalidateUser`) এবং `audit_logs`-এ লেখো।
+- সব ব্যবসা-ডেটার query-তে `businessId` দিয়ে ফিল্টার; Prisma Client-এ স্বয়ংক্রিয় `businessId` extension প্রথম ব্যবসা-ডেটার টেবিলের ধাপে আসবে।
+
 ## পারফরম্যান্স চেকলিস্ট (প্রপোজাল সেকশন ৯.৬): প্রতিটা feature শেষে
 
 1. এই API কি পুরো table আনছে? (pagination আছে? প্রতি পাতায় ১০ সারি)
@@ -75,4 +85,4 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 
 ## কমান্ড
 
-`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:check`
+`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:check` · `npm run admin:create`

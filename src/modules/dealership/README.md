@@ -12,4 +12,9 @@ Product ও Category, Customer, Supplier, Buy, Sell, Stock, Due collection, Comm
 - শুধু `src/core` ব্যবহার করে; অন্য কোনো module সরাসরি ডাকে না (দরকারে core-এর service বা event)।
 - প্রতিটা query `businessId` দিয়ে ফিল্টার হয়; টাকায় Decimal; delete নয়, void।
 
-এখন এখানে কোনো কোড নেই, শুধু জায়গা রাখা হয়েছে।
+## এখন যা আছে
+
+- `dealership.permissions.ts`: এই module-এর অনুমতির ঘোষণা (কোন অনুমতি, কোন রোল ডিফল্টে পায়, কোনগুলো owner-only: `commission.*`, `profit.view`)।
+- `dealership.module.ts`: অনুমতিগুলো core-এর registry-তে নিবন্ধন করে।
+
+কোনো ফিচার (পণ্য, বিক্রি, কেনা, কমিশন) এখনো নেই।
