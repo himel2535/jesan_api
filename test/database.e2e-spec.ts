@@ -53,16 +53,17 @@ describe.skipIf(!hasDatabase)('core database tables', () => {
   it('seeds the default roles and first business, and is idempotent', async () => {
     await seed();
     const db = service.client;
-    const [rolesBefore, businessesBefore] = await Promise.all([
+    const [rolesBefore, businessesBefore, usersBefore] = await Promise.all([
       db.role.count(),
       db.business.count(),
+      db.user.count(),
     ]);
     await seed();
-    const [roles, businessesAfter, business, userCount] = await Promise.all([
+    const [roles, businessesAfter, business, usersAfter] = await Promise.all([
       db.role.findMany({ orderBy: { sortOrder: 'asc' }, select: { key: true, isSystem: true } }),
       db.business.count(),
       db.business.findUnique({ where: { slug: 'akij-cement' } }),
-      db.user.count({ where: { id: { notIn: createdUserIds } } }),
+      db.user.count(),
     ]);
 
     expect(roles.length).toBe(rolesBefore);
@@ -76,7 +77,7 @@ describe.skipIf(!hasDatabase)('core database tables', () => {
       isActive: true,
     });
     // The seed never creates users or passwords.
-    expect(userCount).toBe(0);
+    expect(usersAfter).toBe(usersBefore);
   });
 
   it('generates time-ordered UUID v7 ids', async () => {

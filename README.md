@@ -6,10 +6,11 @@ Frontend আলাদা repository-তে: `jesan-web`।
 ## এখন পর্যন্ত কী হয়েছে
 
 - শুরুর কাঠামো: NestJS অ্যাপ, env ভ্যালিডেশন, global validation pipe, CORS, lint/format/test, CI।
-- ডাটাবেস: PostgreSQL + Prisma 7, core টেবিল (`businesses`, `users`, `roles`, `user_business_access`), migration ও seed।
+- ডাটাবেস: PostgreSQL + Prisma 7, core টেবিল, migration ও seed।
 - `GET /api/v1/health` (অ্যাপ বেঁচে আছে কি না, সবসময় দ্রুত 200) এবং `GET /api/v1/health/ready` (ডাটাবেস পৌঁছানো যায় কি না)।
+- লগইন, রোল ও অনুমতি (শুধু backend): email বা phone দিয়ে লগইন, ব্যবসাভিত্তিক সীমা, অনুমতি-ভিত্তিক নিয়ন্ত্রণ, কমিশন ও লাভ শুধু মালিকের, Settings API ([নিচে](#লগইন-রোল-ও-অনুমতি))।
 
-লগইন, রোলের অনুমতি ও বিজনেস ফিচার এখনো নেই।
+বিজনেস ফিচার (পণ্য, গ্রাহক, বিক্রি, কেনা, কমিশন) এখনো নেই।
 
 ## লোকালে চালানো
 
@@ -47,13 +48,29 @@ Frontend আলাদা repository-তে: `jesan-web`।
    npm run db:seed
    ```
 
-5. **চালান:**
+5. **প্রথম মালিক অ্যাকাউন্ট বানান** (একবারই)। `.env`-এ এই তিনটা বসান (পাসওয়ার্ড কমপক্ষে ১০ অক্ষর; কোডে, চ্যাটে বা commit-এ কখনো নয়):
+
+   ```
+   ADMIN_EMAIL=আপনার-ইমেইল
+   ADMIN_NAME=আপনার নাম
+   ADMIN_PASSWORD=আপনার-পছন্দের-পাসওয়ার্ড
+   ```
+
+   ইমেইলের বদলে বা সাথে `ADMIN_PHONE=01XXXXXXXXX`-ও দেওয়া যায়। তারপর:
+
+   ```bash
+   npm run admin:create
+   ```
+
+   কমান্ড শেষ হলে `.env` থেকে `ADMIN_PASSWORD` লাইনটা **মুছে ফেলুন**। কমান্ডটা বারবার চালানো নিরাপদ: ইউজার আগে থেকে থাকলে কিছু বদলায় না। এটা `is_platform_owner` ইউজার বানায়, যিনি সব ব্যবসায় ঢুকতে পারেন (আলাদা access সারি লাগে না)।
+
+6. **চালান:**
 
    ```bash
    npm run start:dev
    ```
 
-6. **পরীক্ষা:**
+7. **পরীক্ষা:**
 
    ```bash
    curl http://localhost:4000/api/v1/health
@@ -63,7 +80,7 @@ Frontend আলাদা repository-তে: `jesan-web`।
    curl http://localhost:4000/api/v1/health/ready
    ```
 
-   উত্তর: `{"status":"ok"}` এবং `{"status":"ok","database":"up"}`
+   উত্তর: `{"status":"ok"}` এবং `{"status":"ok","database":"up"}`। লগইনের পরীক্ষা নিচের "লগইন ও অনুমতি" অংশে।
 
 ## Environment variable
 
@@ -74,6 +91,12 @@ Frontend আলাদা repository-তে: `jesan-web`।
 | `CORS_ORIGIN` | `http://localhost:3000` | অনুমোদিত origin; একাধিক হলে কমা দিয়ে |
 | `DATABASE_URL` | নেই | অ্যাপের জন্য **pooled** connection। `production`-এ বাধ্যতামূলক, অন্যথায় ঐচ্ছিক |
 | `DIRECT_URL` | নেই | migration-এর জন্য **direct** connection। না থাকলে migration `DATABASE_URL` ব্যবহার করে |
+| `JWT_ACCESS_SECRET` | নেই | access token সই করার গোপন মান, কমপক্ষে ৩২ অক্ষর। `production`-এ বাধ্যতামূলক। না থাকলে (ডেভে) প্রতি চালুতে অস্থায়ী একটা তৈরি হয়, তাই অ্যাপ রিস্টার্টে সবাই লগআউট হয় |
+| `COOKIE_DOMAIN` | নেই | `app.` ও `api.` সাবডোমেইন একই cookie ভাগ করতে চাইলে মূল ডোমেইন (যেমন `example.com`) |
+| `TRUST_PROXY` | `0` | API-র সামনে কয়টা reverse proxy আছে (আসল IP পেতে) |
+| `LOGIN_RATE_LIMIT` | `10` | এক IP থেকে প্রতি মিনিটে লগইন চেষ্টার সীমা |
+
+`ADMIN_EMAIL`, `ADMIN_PHONE`, `ADMIN_NAME`, `ADMIN_PASSWORD` শুধু `npm run admin:create`-এর জন্য; অ্যাপ এগুলো পড়ে না।
 
 ভুল মান দিলে অ্যাপ চালু হবে না এবং কারণ দেখাবে (মানটা দেখাবে না)। আসল secret কখনো repository-তে রাখবেন না; `.env` gitignore করা আছে।
 
@@ -92,7 +115,163 @@ Neon ড্যাশবোর্ডে আপনার **dev branch**-এর "Co
 
 দুটোর শেষেই `?sslmode=require` থাকবে। Production-এর মান শুধু হোস্টিং-এর environment variable-এ বসবে, কোনো ফাইলে নয়।
 
-### কমান্ড
+### লগইন, রোল ও অনুমতি
+
+### Endpoint
+
+| Endpoint | কাজ |
+|---|---|
+| `POST /api/v1/auth/login` | `{ "identifier": "email বা phone", "password": "..." }`। সফল হলে দুটো httpOnly cookie বসে |
+| `POST /api/v1/auth/refresh` | refresh cookie দিয়ে নতুন token জোড়া (পুরনোটা সঙ্গে সঙ্গে অকেজো) |
+| `POST /api/v1/auth/logout` | এই ডিভাইসের সেশন শেষ। বারবার চালানো নিরাপদ |
+| `GET /api/v1/auth/me` | ইউজার, তার ব্যবসাগুলো, প্রতিটায় রোল ও অনুমতির তালিকা |
+| `POST /api/v1/auth/change-password` | নিজের পাসওয়ার্ড বদল; অন্য সব ডিভাইস লগআউট হয় |
+
+phone `01XXXXXXXXX`, `8801XXXXXXXXX` বা `+8801XXXXXXXXX`, যেভাবেই লিখুন, একই নম্বর ধরা হয়।
+
+**forgot-password এই ধাপে নেই।** কেউ পাসওয়ার্ড ভুলে গেলে মালিক Settings API-র `reset-password` দিয়ে নতুন পাসওয়ার্ড বসিয়ে দেবেন (এতে অ্যাকাউন্টের লক-ও খুলে যায়)।
+
+### কে কী দেখতে পারে
+
+- **ব্যবসাভিত্তিক সীমা:** ব্যবহারকারী শুধু সেই ব্যবসায় ঢুকতে পারেন যেখানে তাকে `user_business_access`-এ রোল দেওয়া আছে (Akij-এর ম্যানেজার শুধু Akij-তে)। যাচাই হয় সার্ভারে, প্রতিটা `/b/:businessSlug/...` অনুরোধে। অজানা ব্যবসা আর "ঢোকার অনুমতি নেই", দুটোতেই একই 403।
+- **platform owner** (`users.is_platform_owner = true`): সব ব্যবসায় ঢুকতে পারেন এবং **সব** অনুমতির মালিক, owner-only গুলোসহ।
+- **ব্যবসা-স্তরের `owner` রোল** (কোনো অংশীদারকে এক ব্যবসায় দেওয়া যায়): সব অনুমতি পায় **শুধু owner-only গুলো ছাড়া**। অর্থাৎ কমিশন, লাভ ও ব্যবস্থাপনার অনুমতি পায় না। এই রোলের অনুমতি বদলানো যায় না।
+- **owner-only অনুমতি** (শুধু platform owner): `commission.view`, `commission.manage`, `profit.view`, `settings.manage`, `users.manage`, `roles.manage`, `audit.view`। অন্য কাউকে দেওয়ার চেষ্টা API-তে 400 পায়, আর ডাটাবেসও সরাসরি SQL-এও এই সারি ঢুকতে দেয় না (foreign key + CHECK)।
+- **ম্যানেজার, হিসাবরক্ষক, বিক্রয়কর্মী:** প্রতিটা ব্যবসায় প্রতিটা রোলের অনুমতি ডাটাবেসে (`role_permissions`), মালিক Settings API দিয়ে বদলাতে পারেন। ডিফল্ট `src/modules/dealership/dealership.permissions.ts`-এ। বিক্রয়কর্মী `stock.view` পায় (শুধু পরিমাণ), কিন্তু কেনা-দাম (`product.cost.view`), টাকার সারাংশ, কমিশন বা লাভ নয়।
+- **টাকার ফিল্ড সার্ভারে লুকানো:** অনুমতি না থাকলে response-এ কমিশন, লাভ ইত্যাদি ফিল্ড **পাঠানোই হয় না**। response DTO-তে ঘোষণা না করা কোনো ফিল্ডও কখনো বের হয় না। নিয়ম `src/core/README.md`-তে।
+- নতুন অনুমতি ঘোষণা করে প্রতিটা module নিজে (`PermissionRegistry`)। অ্যাপ চালুর সময় সেগুলো `permissions` টেবিলে মিলিয়ে নেওয়া হয় এবং নতুন অনুমতির ডিফল্ট রোলে বসে। মালিকের আগের বদল কখনো মুছে যায় না।
+
+### Settings API (platform owner)
+
+সব পথ `/api/v1/b/:businessSlug/...`-এর নিচে।
+
+| Endpoint | অনুমতি | কাজ |
+|---|---|---|
+| `GET roles/permissions` | `roles.manage` | রোল × অনুমতির ছক |
+| `PUT roles/:roleKey/permissions` | `roles.manage` | একটা রোলের অনুমতির পুরো তালিকা বসানো (`{ "permissions": ["stock.view", ...] }`) |
+| `GET users?page=1` | `users.view` | ব্যবসার ইউজার, প্রতি পাতায় ১০ জন |
+| `POST users` | `users.manage` | ইউজার তৈরি ও রোল বরাদ্দ (`name`, `email` বা `phone`, `password`, `roleKey`) |
+| `POST users/:userId/access` | `users.manage` | বিদ্যমান ইউজারকে এই ব্যবসায় রোলসহ ঢোকার অনুমতি |
+| `PATCH users/:userId/role` | `users.manage` | রোল বদল |
+| `DELETE users/:userId/access` | `users.manage` | এই ব্যবসার অ্যাক্সেস সরানো (ইউজার মোছা নয়) |
+| `PATCH users/:userId/status` | `users.manage` | `{ "isActive": false }` দিলে সব ব্যবসা থেকে সঙ্গে সঙ্গে লগআউট |
+| `POST users/:userId/reset-password` | `users.manage` | নতুন পাসওয়ার্ড (`{ "newPassword": "..." }`); সব সেশন শেষ, লক খোলে |
+
+প্রতিটা বদল `audit_logs`-এ লেখা হয় (কে, কখন, কী বদলাল; পাসওয়ার্ড কখনো নয়)। platform owner অ্যাকাউন্ট এই API দিয়ে বদলানো যায় না। অনুমতি বা রোল বদলালে তার প্রভাব সঙ্গে সঙ্গে কার্যকর হয় (সার্ভারের ৬০ সেকেন্ডের cache মুছে যায়)।
+
+### Token ও নিরাপত্তা
+
+- **Access token** ১৫ মিনিট, **refresh token** ৩০ দিন, দুটোই httpOnly cookie (`jesan_at`, `jesan_rt`; refresh cookie শুধু `/api/v1/auth` পথে যায়)। পাতার JavaScript এগুলো পড়তে পারে না। `Authorization: Bearer` header-ও গ্রহণযোগ্য।
+- প্রতিবার refresh করলে refresh token বদলে যায়। পুরনো token ১০ সেকেন্ডের পরে আবার এলে ধরে নেওয়া হয় চুরি হয়েছে এবং পুরো সেশন বাতিল হয়। logout, পাসওয়ার্ড বদল বা ইউজার নিষ্ক্রিয় করলে access token-ও সঙ্গে সঙ্গে অকেজো।
+- পাসওয়ার্ড argon2id; ১০ থেকে ১২৮ অক্ষর; নিজের email বা phone হওয়া চলবে না।
+- ভুল, অজানা ইউজার, নিষ্ক্রিয় বা লক, সব ক্ষেত্রেই একই বার্তা (`Invalid credentials`) ও প্রায় সমান সময়।
+- পরপর ৫ বার ভুল পাসওয়ার্ডে অ্যাকাউন্ট ১৫ মিনিট লক। এক IP থেকে প্রতি মিনিটে `LOGIN_RATE_LIMIT`-এর বেশি লগইন চেষ্টা করলে 429।
+- cookie-তে লগইন করা অবস্থায় বদলানোর অনুরোধে `Origin` header `CORS_ORIGIN`-এর তালিকায় না থাকলে 403 (CSRF-এর বিরুদ্ধে)।
+- প্রতিটা অনুরোধের token সার্ভারে যাচাই হয় ডাটাবেসে না গিয়ে। এই ব্যবস্থা ধরে নেয় API একটাই instance-এ চলে; একাধিক হলে cache ও revoke-তালিকা Redis-এ নিতে হবে।
+
+### ডিপ্লয়ের শর্ত: cookie কাজ করতে web আর API একই সাইটে থাকতে হবে
+
+Token cookie-তে থাকে এবং `SameSite=Lax`। তাই ব্রাউজার cookie পাঠায় শুধু তখনই, যখন web আর API **একই সাইটের** অধীনে। দুটোর যেকোনো একটা:
+
+1. **কাস্টম ডোমেইনের সাবডোমেইন**, যেমন `app.আপনার-ডোমেইন` (Next.js) ও `api.আপনার-ডোমেইন` (API)। API-তে `COOKIE_DOMAIN=আপনার-ডোমেইন`, `CORS_ORIGIN=https://app.আপনার-ডোমেইন`। ব্রাউজারের অনুরোধে `credentials: 'include'` লাগবে।
+2. **Next.js proxy:** ব্রাউজার শুধু web-এর ডোমেইনকে ডাকে, Next.js (`rewrites`) ভেতরে ভেতরে API-কে ডাকে। তখন cookie web-এর ডোমেইনের, `COOKIE_DOMAIN` লাগে না।
+
+**কাজ করবে না:** web `xxx.vercel.app`, API `xxx.up.railway.app` (দুটো আলাদা সাইট)। লগইন সফল দেখালেও পরের অনুরোধে cookie যাবে না, `me` 401 দেবে। `SameSite=None` দিয়ে এটা ঘোরানো হবে না, কারণ তাতে CSRF সুরক্ষা দুর্বল হয়। production-এ `NODE_ENV=production` চালু থাকলে cookie `Secure` হয়, তাই HTTPS লাগবে; API reverse proxy-র পেছনে থাকলে `TRUST_PROXY=1`।
+
+### লোকালে cookie কাজ করা (`localhost:3000` ও `localhost:4000`)
+
+ব্রাউজার "সাইট" ধরে স্কিম ও ডোমেইন দিয়ে, **পোর্ট ধরে না**। তাই `http://localhost:3000` আর `http://localhost:4000` একই সাইট, কোনো বাড়তি সেটিং ছাড়াই cookie যায়:
+
+1. `.env`-এ `CORS_ORIGIN=http://localhost:3000` (এটাই ডিফল্ট)। `credentials: true` CORS-এ চালু আছে, তাই origin অবশ্যই নির্দিষ্ট হতে হবে (`*` চলে না)।
+2. frontend থেকে প্রতিটা অনুরোধে `credentials: 'include'`, যেমন `fetch('http://localhost:4000/api/v1/auth/login', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier, password }) })`।
+3. ডেভে (`NODE_ENV` ≠ `production`) cookie-তে `Secure` নেই, তাই `http://localhost`-এ চলে।
+4. frontend ছাড়া যাচাই: `curl -i -H 'Origin: http://localhost:3000' ...` চালালে উত্তরে `Access-Control-Allow-Credentials: true` ও `Set-Cookie` দেখা যায় (নিচের উদাহরণ)।
+
+### লগইন যাচাই (curl)
+
+পাসওয়ার্ড টার্মিনালে লুকিয়ে নেওয়া হয়, তাই shell history-তে বা চ্যাটে যায় না। cookie রাখা হয় `/tmp`-এ (repository-র ভেতরে নয়)। অ্যাপ চালু থাকতে হবে।
+
+1. ইমেইল ও পাসওয়ার্ড নিন:
+
+   ```bash
+   printf 'Email: '; read ID; printf 'Password: '; stty -echo; read PW; stty echo; echo; export ID PW
+   ```
+
+2. লগইন (উত্তরে `user` থাকবে, `isPlatformOwner: true`):
+
+   ```bash
+   node -e 'process.stdout.write(JSON.stringify({identifier:process.env.ID,password:process.env.PW}))' | curl -s -c /tmp/jesan-owner.txt -X POST http://localhost:4000/api/v1/auth/login -H 'content-type: application/json' --data-binary @-
+   ```
+
+3. `me` (ব্যবসা ও অনুমতিসহ):
+
+   ```bash
+   curl -s -b /tmp/jesan-owner.txt http://localhost:4000/api/v1/auth/me
+   ```
+
+4. ভুল পাসওয়ার্ডে একই বার্তা: নিচের দুটোই `{"message":"Invalid credentials",...}` দেবে (একটায় ভুল পাসওয়ার্ড, অন্যটায় যে ইমেইল নেই):
+
+   ```bash
+   curl -s -X POST http://localhost:4000/api/v1/auth/login -H 'content-type: application/json' -d '{"identifier":"nobody@example.test","password":"wrong-password-1"}'
+   ```
+
+   ```bash
+   node -e 'process.stdout.write(JSON.stringify({identifier:process.env.ID,password:"wrong-password-1"}))' | curl -s -X POST http://localhost:4000/api/v1/auth/login -H 'content-type: application/json' --data-binary @-
+   ```
+
+5. ম্যানেজার বানিয়ে যাচাই: ম্যানেজারের ইমেইল ও পাসওয়ার্ড নিন, মালিক হিসেবে তাকে `akij-cement`-এ বানান, তারপর ম্যানেজার হিসেবে লগইন করুন:
+
+   ```bash
+   printf 'Manager email: '; read MID; printf 'Manager password (10+ chars): '; stty -echo; read MPW; stty echo; echo; export MID MPW
+   ```
+
+   ```bash
+   node -e 'process.stdout.write(JSON.stringify({name:"Test Manager",email:process.env.MID,password:process.env.MPW,roleKey:"manager"}))' | curl -s -b /tmp/jesan-owner.txt -X POST http://localhost:4000/api/v1/b/akij-cement/users -H 'content-type: application/json' --data-binary @-
+   ```
+
+   ```bash
+   node -e 'process.stdout.write(JSON.stringify({identifier:process.env.MID,password:process.env.MPW}))' | curl -s -c /tmp/jesan-manager.txt -X POST http://localhost:4000/api/v1/auth/login -H 'content-type: application/json' --data-binary @-
+   ```
+
+6. ম্যানেজার কমিশন ও লাভ পায় না: নিচের কমান্ড `manager false false true` ছাপবে (রোল, `commission.view`, `profit.view`, `sale.create`):
+
+   ```bash
+   curl -s -b /tmp/jesan-manager.txt http://localhost:4000/api/v1/auth/me | node -e 'let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{const b=JSON.parse(s).businesses[0];console.log(b.role.key,b.permissions.includes("commission.view"),b.permissions.includes("profit.view"),b.permissions.includes("sale.create"))})'
+   ```
+
+7. মালিকের তালিকায় সব আছে: নিচের কমান্ড `owner true true` ছাপবে (platform owner-এর রোল ও কমিশন-লাভ দুটোই আছে):
+
+   ```bash
+   curl -s -b /tmp/jesan-owner.txt http://localhost:4000/api/v1/auth/me | node -e 'let s="";process.stdin.on("data",d=>{s+=d}).on("end",()=>{const b=JSON.parse(s).businesses[0];console.log(b.role.key,b.permissions.includes("commission.view"),b.permissions.includes("profit.view"))})'
+   ```
+
+8. ম্যানেজার ব্যবস্থাপনার API পায় না (`403` ছাপবে):
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -b /tmp/jesan-manager.txt http://localhost:4000/api/v1/b/akij-cement/roles/permissions
+   ```
+
+9. মালিকও ম্যানেজারকে কমিশন দিতে পারেন না (`400` ছাপবে এবং কিছু বদলায় না):
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -b /tmp/jesan-owner.txt -X PUT http://localhost:4000/api/v1/b/akij-cement/roles/manager/permissions -H 'content-type: application/json' -d '{"permissions":["stock.view","commission.view"]}'
+   ```
+
+10. শেষে: logout ও cookie-র ফাইল মুছুন:
+
+    ```bash
+    curl -s -b /tmp/jesan-owner.txt -X POST http://localhost:4000/api/v1/auth/logout -o /dev/null -w '%{http_code}\n'
+    ```
+
+    ```bash
+    rm -f /tmp/jesan-owner.txt /tmp/jesan-manager.txt; unset ID PW MID MPW
+    ```
+
+### macOS 12-এ পাসওয়ার্ড লাইব্রেরি
+
+পাসওয়ার্ড hashing `@node-rs/argon2` দিয়ে। এর macOS (Intel) বাইনারি আগে থেকে তৈরি (macOS 10.13 বা নতুনে চলে), তাই `npm install`-এ কিছু compile করতে হয় না। তবু `npm install` বা লগইনে এই লাইব্রেরি নিয়ে সমস্যা হলে `DECISIONS.md`-র "পাসওয়ার্ড লাইব্রেরি" অংশে বিকল্প (বিশুদ্ধ WebAssembly, একই hash ফরম্যাট) লেখা আছে।
+
+## কমান্ড
 
 | কমান্ড | কাজ |
 |---|---|
@@ -128,6 +307,7 @@ Neon ড্যাশবোর্ডে আপনার **dev branch**-এর "Co
 | `npm run type-check` | `tsc --noEmit` |
 | `npm test` | Vitest (unit + e2e) |
 | `npm run format` | Prettier |
+| `npm run admin:create` | প্রথম মালিক অ্যাকাউন্ট বানায় (একবার) |
 
 ## ফোল্ডার
 
@@ -138,11 +318,15 @@ src/
   app.module.ts
   core/              সব ব্যবসার জন্য এক অংশ (README দেখুন)
     database/        Prisma module ও service
+    auth/            লগইন, token, session
+    permissions/     অনুমতির নিবন্ধন, গার্ড, ফিল্ড লুকানো
+    access/          Settings API (রোলের অনুমতি, ইউজার)
+    audit/           audit log
   generated/prisma/  Prisma client (git-এ নেই, `npm install`-এ তৈরি হয়)
   modules/
     dealership/      ডিলারশিপ ধরনের ব্যবসার module (README দেখুন)
 test/                e2e টেস্ট
-prisma/              schema, migration, seed
+prisma/              schema, migration, seed, admin-create
 prisma.config.ts     Prisma CLI-র কনফিগ
 ```
 

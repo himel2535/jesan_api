@@ -28,7 +28,9 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  access UserBusinessAccess[]
+  access          UserBusinessAccess[]
+  rolePermissions RolePermission[]
+  auditLogs       AuditLog[]
 
   @@map("businesses")
 }
@@ -36,18 +38,26 @@ model Business {
 /// A person who can sign in. At least one of email/phone is required
 /// (CHECK constraint in the migration); both are unique when present.
 model User {
-  id           String    @id @default(uuid(7)) @db.Uuid
+  id                String    @id @default(uuid(7)) @db.Uuid
   /// Stored lowercase (CHECK constraint in the migration).
-  email        String?   @unique @db.VarChar(254)
-  phone        String?   @unique @db.VarChar(20)
-  name         String    @db.VarChar(120)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  email             String?   @unique @db.VarChar(254)
+  phone             String?   @unique @db.VarChar(20)
+  name              String    @db.VarChar(120)
+  passwordHash      String    @map("password_hash") @db.VarChar(255)
+  isActive          Boolean   @default(true) @map("is_active")
+  /// The company owner: may enter every business and holds every permission,
+  /// including the owner-only ones (commission, profit, management).
+  isPlatformOwner   Boolean   @default(false) @map("is_platform_owner")
+  failedLoginCount  Int       @default(0) @map("failed_login_count")
+  lockedUntil       DateTime? @map("locked_until") @db.Timestamptz(3)
+  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz(3)
+  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  access UserBusinessAccess[]
+  access    UserBusinessAccess[]
+  sessions  Session[]
+  auditLogs AuditLog[]
 
   @@map("users")
 }
@@ -63,7 +73,8 @@ model Role {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  access UserBusinessAccess[]
+  access          UserBusinessAccess[]
+  rolePermissions RolePermission[]
 
   @@map("roles")
 }
@@ -88,4 +99,95 @@ model UserBusinessAccess {
   // role_id foreign key.
   @@index([roleId])
   @@map("user_business_access")
+}
+
+/// Every permission the code declares (mirrored here at startup).
+/// Rows are never deleted: a permission that leaves the code is only deactivated.
+model Permission {
+  key       String   @id @db.VarChar(100)
+  module    String   @db.VarChar(32)
+  /// Owner-only permissions can be held by the platform owner alone. The
+  /// role_permissions table cannot reference them (see its CHECK constraint).
+  ownerOnly Boolean  @map("owner_only")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rolePermissions RolePermission[]
+
+  // Target of the composite foreign key from role_permissions.
+  @@unique([key, ownerOnly])
+  @@map("permissions")
+}
+
+/// Which permissions a role has inside one business. The business-level
+/// "owner" role and the platform owner have no rows here: their permissions
+/// are computed from the permission list.
+model RolePermission {
+  businessId          String   @map("business_id") @db.Uuid
+  roleId              String   @map("role_id") @db.Uuid
+  permissionKey       String   @map("permission_key") @db.VarChar(100)
+  /// Always false: a CHECK constraint (added in the migration) plus the
+  /// composite foreign key keep owner-only permissions out of this table.
+  permissionOwnerOnly Boolean  @default(false) @map("permission_owner_only")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business   Business   @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionKey, permissionOwnerOnly], references: [key, ownerOnly], onDelete: Restrict)
+
+  @@id([businessId, roleId, permissionKey])
+  // role_id foreign key.
+  @@index([roleId])
+  // permission foreign key.
+  @@index([permissionKey, permissionOwnerOnly])
+  @@map("role_permissions")
+}
+
+/// One row per signed-in device. Only the SHA-256 of the refresh token is stored.
+model Session {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  refreshTokenHash  String    @unique @map("refresh_token_hash") @db.Char(64)
+  /// The token before the last rotation: seeing it again means it was copied.
+  previousTokenHash String?   @map("previous_token_hash") @db.Char(64)
+  rotatedAt         DateTime? @map("rotated_at") @db.Timestamptz(3)
+  lastUsedAt        DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedReason     String?   @map("revoked_reason") @db.VarChar(32)
+  userAgent         String?   @map("user_agent") @db.VarChar(255)
+  ip                String?   @db.VarChar(45)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([previousTokenHash])
+  @@map("sessions")
+}
+
+/// Append-only record of security-relevant changes. No API edits or deletes it.
+/// `changes` holds only the changed fields (before and after), never passwords.
+model AuditLog {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  /// Null for platform-level events (for example a session theft detection).
+  businessId  String?  @map("business_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(64)
+  entityType  String   @map("entity_type") @db.VarChar(64)
+  entityId    String?  @map("entity_id") @db.VarChar(64)
+  changes     Json?
+  ip          String?  @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  actor    User?     @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
 }
