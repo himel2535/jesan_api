@@ -12,6 +12,14 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 5. **আসল secret কখনো কোডে, চ্যাটে বা commit-এ নয়।** লাগলে `.env.example`-এ শুধু নাম রাখো এবং মালিককে বলো আসল মান কোথায় বসাতে হবে।
 6. **কাজের শেষে ছোট রিপোর্ট:** কী কী হলো, কোথায় merge হলো, মালিকের কী করতে হবে (যেমন Mac-এ `git pull`)।
 
+## Git branch নিয়ম
+
+- প্রতিটা নতুন কাজে `main` থেকে নতুন নামের branch নাও: `claude/<কাজের-নাম>` (যেমন `claude/decisions-macos-verified`)।
+- পুরনো (merge হয়ে যাওয়া) branch পুনরায় ব্যবহার নয়।
+- force push কখনো নয়।
+- `main`-এ সরাসরি push নয়; সবসময় PR, CI সবুজ হলে squash merge।
+- merge-এর পর branch মোছো। মোছা না গেলে রিপোর্টে জানাও, যাতে মালিক নিজে মুছতে পারেন।
+
 ## CI (GitHub Actions)
 
 `.github/workflows/ci.yml` প্রতিটা PR-এ এবং `main`-এ push হলে Node 22-এ (`.nvmrc` থেকে) চালায়: `npm ci` → lint → type-check → test → build। এই চেক সবুজ না হলে merge নয়। নতুন চেক বা script যোগ হলে workflow-ও হালনাগাদ করো।

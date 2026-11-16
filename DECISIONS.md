@@ -50,18 +50,17 @@
 | eslint-config-prettier / prettier / globals | 10.1.8 / 3.10.1 / 17.14.0 | |
 | @types/node / @types/express | 22.20.5 / 5.0.6 | @types/node latest 26.6.6, Node 22-এর সাথে মেলানো |
 
-### macOS 12.7.6-এ নেটিভ বাইনারি: লোকালে চলবে কি না যাচাই বাকি
+### macOS 12.7.6-এ নেটিভ বাইনারি: যাচাই সম্পন্ন (২০২৬-১১-১৬)
 
-নিচের প্যাকেজগুলো আগে থেকে compile করা নেটিভ বাইনারি আনে। এগুলো শুধু dev/test tool, production runtime-এ নয়। ক্লাউডে (Linux x64) সব পাস করেছে; **Mac-এ (macOS 12.7.6) যাচাই বাকি**:
+নিচের প্যাকেজগুলো আগে থেকে compile করা নেটিভ বাইনারি আনে (শুধু dev/test tool, production runtime-এ নয়)। ডেভেলপারের Mac-এ (macOS 12.7.6, Node v22.23.5, npm 10.9.9) যাচাই হয়েছে: `npm install` সফল, `npm test`-এ ১১টা টেস্ট পাস, `npm run start:dev` চালু এবং watch mode কাজ করছে।
 
 | প্যাকেজ | কোন কমান্ডে লাগে | অবস্থা |
 |---|---|---|
-| `@swc/core` 1.16.22 | `npm test` | যাচাই বাকি |
-| `rolldown` (Vite 8 → Vitest-এর ভেতরে) | `npm test` | যাচাই বাকি |
-| `lightningcss` (Vite 8-এর dependency) | `npm test` | যাচাই বাকি |
-| `fsevents` (macOS-only, optional) | `npm run start:dev`, `vitest` watch | যাচাই বাকি |
+| `@swc/core` 1.16.22 | `npm test` | macOS 12.7.6-এ যাচাই সম্পন্ন |
+| `rolldown` (Vite 8 → Vitest-এর ভেতরে) | `npm test` | macOS 12.7.6-এ যাচাই সম্পন্ন |
+| `fsevents` (macOS-only, optional) | `npm run start:dev`, `vitest` watch | macOS 12.7.6-এ যাচাই সম্পন্ন |
 
-`npm run start`, `start:dev`, `build`, `lint`, `type-check` খাঁটি JavaScript-এ চলে (fsevents ছাড়া), তাই ঝুঁকি মূলত `npm test`-এ। না চললে বিকল্প ভেবে এখানে লেখা হবে।
+`lightningcss` Vite 8-এর dependency হিসেবে install হয় (Mac-এ install সফল), কিন্তু এই repository-তে CSS প্রসেসিং নেই বলে কখনো চলে না। এর আসল যাচাই হবে frontend (`jesan-web`)-এ।
 
 ### জানা সমস্যা
 
@@ -71,3 +70,8 @@
 
 - GitHub Actions (`.github/workflows/ci.yml`): প্রতিটা PR ও `main`-এ push-এ lint, type-check, test, build। Node ভার্সন `.nvmrc` থেকে পড়া হয়, যাতে লোকাল, ক্লাউড ও CI এক থাকে। `actions/checkout@v7`, `actions/setup-node@v7` (সর্বশেষ major)। Workflow-এর অনুমতি শুধু `contents: read`।
 - Merge পদ্ধতি: চেক সবুজ হলে `main`-এ squash merge, তারপর branch মুছে ফেলা (মালিকের নির্দেশ, `CLAUDE.md`-র "কাজের ধরন")।
+
+## ২০২৬-১১-১৬: Git branch নিয়ম
+
+- প্রতিটা কাজে `main` থেকে নতুন নামের branch (`claude/<কাজের-নাম>`); পুরনো branch পুনরায় ব্যবহার নয়, force push নয়, `main`-এ সরাসরি push নয়। কারণ: squash merge-এর পর পুরনো branch-এর ইতিহাস `main`-এর সাথে মেলে না, তাই পুনরায় ব্যবহার করতে গেলে force push বা অগোছালো merge লাগে; নতুন branch-এ সেই ঝুঁকি নেই এবং প্রতিটা PR ছোট ও পরিষ্কার থাকে।
+- ক্লাউড সেশনের অনুমতিতে remote branch মোছা আটকাতে পারে (প্রথম PR-এ 403 এসেছিল), তাই মোছা না গেলে রিপোর্টে জানানো হবে।
