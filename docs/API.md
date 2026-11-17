@@ -141,6 +141,7 @@ Next.js-এর Server Component বা Route Handler থেকে ডাকল�
 | PUT | `/b/:businessSlug/roles/:roleKey/permissions` | হ্যাঁ | `roles.manage` (owner-only) | 200 |
 | GET | `/b/:businessSlug/users?page=1` | হ্যাঁ | `users.view` | 200 |
 | POST | `/b/:businessSlug/users` | হ্যাঁ | `users.manage` (owner-only) | 201 |
+| POST | `/b/:businessSlug/users/lookup` | হ্যাঁ | `users.manage` (owner-only); প্রতি ইউজার মিনিটে ২০টা | 200 |
 | POST | `/b/:businessSlug/users/:userId/access` | হ্যাঁ | `users.manage` (owner-only) | 200 |
 | PATCH | `/b/:businessSlug/users/:userId/role` | হ্যাঁ | `users.manage` (owner-only) | 200 |
 | DELETE | `/b/:businessSlug/users/:userId/access` | হ্যাঁ | `users.manage` (owner-only) | 204 |
@@ -476,7 +477,7 @@ Response 200 (কী যোগ হলো, কী বাদ গেল):
 
 ### `GET users?page=1`: ব্যবসার ইউজার
 
-প্রতি পাতায় ১০ জন; `page` ১ থেকে শুরু।
+প্রতি পাতায় ১০ জন; `page` ১ থেকে শুরু। ক্রম: ইউজারকে এই ব্যবসায় যোগ করার ক্রমে।
 
 ```json
 {
@@ -487,6 +488,7 @@ Response 200 (কী যোগ হলো, কী বাদ গেল):
       "email": "manager@example.com",
       "phone": "+8801712345678",
       "isActive": true,
+      "isPlatformOwner": false,
       "lastLoginAt": "2026-11-17T07:35:26.027Z",
       "role": "manager"
     }
@@ -497,7 +499,60 @@ Response 200 (কী যোগ হলো, কী বাদ গেল):
 }
 ```
 
-`lastLoginAt` কখনো লগইন না করলে `null`। মোট পাতা = `Math.ceil(total / pageSize)`।
+প্রতিটা item-এ ঠিক এই ফিল্ডগুলো থাকে, এর বেশি কিছু নয়:
+
+| ফিল্ড | টাইপ | মানে |
+|---|---|---|
+| `id` | string (UUID) | ইউজারের id |
+| `name` | string | নাম |
+| `email` | string \| null | ইমেইল (না থাকলে `null`) |
+| `phone` | string \| null | ফোন, `+880...` রূপে (না থাকলে `null`) |
+| `isActive` | boolean | `false` = নিষ্ক্রিয়, লগইন করতে পারেন না (সব ব্যবসায়) |
+| `isPlatformOwner` | boolean | platform owner কি না (নিচে দেখুন; এই তালিকায় কার্যত সবসময় `false`) |
+| `lastLoginAt` | string (ISO সময়) \| null | শেষ সফল লগইন; কখনো লগইন না করলে `null` |
+| `role` | string | এই ব্যবসায় রোলের key: `owner`, `manager`, `accountant`, `salesman` |
+
+পাসওয়ার্ড, hash বা লকের তথ্য কখনো আসে না। মোট পাতা = `Math.ceil(total / pageSize)`।
+
+**platform owner কি তালিকায় আসেন?** না। platform owner (`isPlatformOwner: true`) সব ব্যবসায় এমনিই ঢোকেন, তাঁর কোনো ব্যবসায় সদস্যপদের সারি থাকে না, আর এই API দিয়ে তাঁকে কোনো ব্যবসায় যোগ বা বদল করা যায় না। তাই তালিকায় শুধু এই ব্যবসার সদস্যরা আসেন। Settings পেজে platform owner-কে দেখাতে চাইলে `GET /auth/me`-এর `user` থেকে নিজেকে আলাদা করে দেখান।
+
+**ইউজারকে `owner` রোল দেওয়া যায় কি?** হ্যাঁ। platform owner কোনো ইউজারকে এক বা একাধিক ব্যবসায় ব্যবসা-স্তরের `owner` রোল দিতে পারেন (তৈরির সময় `roleKey: "owner"`, অথবা `access`/`role` endpoint দিয়ে)। সেই ইউজার ওই ব্যবসায় সব অনুমতি পান **শুধু owner-only গুলো ছাড়া** (কমিশন, লাভ, Settings বদল, ইউজার ও রোল ব্যবস্থাপনা, audit)। তাই তিনি Settings API ব্যবহার করতে বা অন্যকে রোল দিতে পারেন না। কাউকে platform owner বানানো শুধু কমান্ড-লাইনে (`npm run admin:create`), API দিয়ে নয়।
+
+### `POST users/lookup`: বিদ্যমান ইউজার খোঁজা
+
+কেউ আগে থেকেই অন্য ব্যবসায় কাজ করেন (একই ইমেইল বা ফোন), তাঁকে এই ব্যবসায় যোগ করার আগে খোঁজার জন্য। শুধু platform owner (`users.manage`)। ইমেইল বা ফোন body-তে যায় (URL-এ নয়), যাতে সার্ভারের লগে না থাকে।
+
+Request:
+
+```json
+{ "identifier": "manager@example.com" }
+```
+
+ইমেইলের বড়-ছোট হাতের অক্ষর ধরা হয় না; ফোন `01712345678` বা `+8801712345678` দুভাবেই চলে।
+
+Response 200:
+
+```json
+{
+  "id": "01a1e86e-9e22-720b-bd46-0235039e175b",
+  "name": "Rahim Uddin",
+  "isActive": true,
+  "isPlatformOwner": false,
+  "hasAccess": false,
+  "role": null
+}
+```
+
+| ফিল্ড | মানে |
+|---|---|
+| `hasAccess` | এই ব্যবসায় আগে থেকে ঢুকতে পারেন কি না (platform owner হলে সবসময় `true`) |
+| `role` | এই ব্যবসায় বর্তমান রোলের key; সদস্য না হলে বা platform owner হলে `null` |
+
+উত্তরে ইমেইল, ফোন বা অন্য কোন কোন ব্যবসায় আছেন, তা থাকে না। পরের ধাপ: `hasAccess: false` হলে `POST users/:id/access` দিয়ে রোলসহ যোগ করুন; `isPlatformOwner: true` হলে কিছু করার নেই।
+
+- না মিললে (বা identifier ইমেইল/ফোন না হলে) **404** `User not found`; খালি হলে 400।
+- **Rate limit:** প্রতি ইউজার প্রতি মিনিটে ২০টা খোঁজ; বেশি হলে **429** (`Retry-After` header দেখুন)।
+- প্রতিটা খোঁজ audit log-এ যায় (কে, কোন ব্যবসায়, ইমেইল নাকি ফোন দিয়ে, পাওয়া গেল কি না); খোঁজার ইমেইল বা ফোন লগে রাখা হয় না।
 
 ### `POST users`: ইউজার তৈরি ও রোল বরাদ্দ
 
@@ -521,7 +576,7 @@ Response **201**:
 { "id": "01a1e86e-9e22-720b-bd46-0235039e175b", "role": "manager" }
 ```
 
-ত্রুটি: একই email বা phone আগে থেকে থাকলে 409 `A user with this email or phone already exists; grant them access instead` (তখন নিচের `access` endpoint দিয়ে ওই ইউজারকে এই ব্যবসায় যোগ করুন); অজানা রোল 400 `Unknown role`; email ও phone কোনোটাই না থাকলে 400।
+ত্রুটি: একই email বা phone আগে থেকে থাকলে 409 `A user with this email or phone already exists; grant them access instead`। এই উত্তরে বিদ্যমান ইউজারের id **থাকে না**; id পেতে `POST users/lookup` দিয়ে খুঁজুন, তারপর `access` endpoint দিয়ে যোগ করুন; অজানা রোল 400 `Unknown role`; email ও phone কোনোটাই না থাকলে 400।
 
 ### `POST users/:userId/access`: বিদ্যমান ইউজারকে এই ব্যবসায় যোগ
 
@@ -777,7 +832,7 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 | 403 | অবিশ্বস্ত origin থেকে বদলানোর অনুরোধ | `Origin not allowed` | কনফিগারেশনের ভুল (`CORS_ORIGIN`) |
 | 404 | জিনিসটা নেই (অথবা অন্য ব্যবসার) | `User not found`, `Unknown role`, `Product not found`, `Customer not found` | "পাওয়া যায়নি" |
 | 409 | আগে থেকে আছে | `A user with this email or phone already exists; grant them access instead`, `A customer with this phone number already exists`, `A product with this name already exists` | কোন ফিল্ড ডুপ্লিকেট তা দেখান |
-| 429 | এক IP থেকে প্রতি মিনিটে বেশি লগইন চেষ্টা | `ThrottlerException: Too Many Requests` | `Retry-After` header-এর সেকেন্ড পর্যন্ত অপেক্ষা |
+| 429 | এক IP থেকে প্রতি মিনিটে বেশি লগইন চেষ্টা, অথবা এক ইউজারের প্রতি মিনিটে ২০টার বেশি ইউজার-খোঁজ | `ThrottlerException: Too Many Requests` | `Retry-After` header-এর সেকেন্ড পর্যন্ত অপেক্ষা |
 | 503 | ডাটাবেস কনফিগার করা নেই বা পাওয়া যায় না | `Database is not configured: set DATABASE_URL` | "সার্ভার সাময়িকভাবে বন্ধ" |
 | 500 | অপ্রত্যাশিত | `Internal server error` | সাধারণ ত্রুটি |
 
