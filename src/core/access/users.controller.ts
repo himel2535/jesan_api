@@ -10,13 +10,20 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { AppRequest, AuthContext, BusinessAccess } from '../common/request-context';
 import { CurrentAccess, CurrentAuth } from '../permissions/current.decorators';
 import { RequirePermission } from '../permissions/decorators';
 import { AccessAdminService, ActorInfo } from './access-admin.service';
+import { UserThrottlerGuard } from './user-throttler.guard';
+
+/** Lookups allowed per user per minute. */
+const LOOKUP_LIMIT_PER_MINUTE = 20;
 import {
   CreateUserDto,
+  LookupUserDto,
   PageQueryDto,
   ResetPasswordDto,
   RoleKeyDto,
@@ -50,6 +57,21 @@ export class UsersController {
     @Req() request: AppRequest,
   ) {
     return this.admin.createUser(access, body, actorOf(auth, request));
+  }
+
+  /** Find an existing user by email or phone (POST keeps them out of URLs and logs). */
+  @Post('lookup')
+  @HttpCode(200)
+  @RequirePermission('users.manage')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: LOOKUP_LIMIT_PER_MINUTE, ttl: 60_000 } })
+  lookup(
+    @CurrentAccess() access: BusinessAccess,
+    @CurrentAuth() auth: AuthContext,
+    @Body() body: LookupUserDto,
+    @Req() request: AppRequest,
+  ) {
+    return this.admin.lookupUser(access, body.identifier, actorOf(auth, request));
   }
 
   @Post(':userId/access')

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
-import { normalizeEmail, normalizePhone } from '../auth/identifier';
+import { normalizeEmail, normalizePhone, parseLoginIdentifier } from '../auth/identifier';
 import { PasswordService } from '../auth/password.service';
 import { SessionService } from '../auth/session.service';
 import { BusinessAccess } from '../common/request-context';
@@ -178,6 +178,58 @@ export class AccessAdminService {
       page,
       pageSize: USERS_PAGE_SIZE,
       total,
+    };
+  }
+
+  /**
+   * Finds an existing user by email or phone, so the owner can give them access
+   * to this business. Answers only what that needs (never the email, phone or
+   * other businesses). Every lookup is audited; the endpoint is rate limited.
+   */
+  async lookupUser(access: BusinessAccess, identifier: string, actor: ActorInfo) {
+    const parsed = parseLoginIdentifier(identifier);
+    const user = parsed
+      ? await this.prisma.client.user.findUnique({
+          where: 'email' in parsed ? { email: parsed.email } : { phone: parsed.phone },
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            isPlatformOwner: true,
+            access: {
+              where: { businessId: access.businessId },
+              select: { role: { select: { key: true } } },
+            },
+          },
+        })
+      : null;
+
+    await this.audit.record({
+      businessId: access.businessId,
+      actorUserId: actor.userId,
+      action: 'user.lookup',
+      entityType: 'user',
+      entityId: user?.id ?? null,
+      // What was searched with, never the searched email or phone itself.
+      changes: {
+        by: parsed ? ('email' in parsed ? 'email' : 'phone') : 'invalid',
+        found: user !== null,
+      },
+      ip: actor.ip ?? null,
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    const membership = user.access[0];
+    return {
+      id: user.id,
+      name: user.name,
+      isActive: user.isActive,
+      isPlatformOwner: user.isPlatformOwner,
+      // A platform owner enters every business without a membership row.
+      hasAccess: user.isPlatformOwner || membership !== undefined,
+      role: membership?.role.key ?? null,
     };
   }
 

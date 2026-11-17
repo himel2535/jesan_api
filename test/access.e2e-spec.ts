@@ -338,6 +338,108 @@ describe.skipIf(!hasDatabase)('Settings: users, roles and permissions', () => {
     });
   });
 
+  describe('looking up an existing user', () => {
+    const lookup = (cookies: Cookies, identifier: string, slug = shopA.slug) =>
+      send(t.server, 'post', `/b/${slug}/users/lookup`, cookies, { identifier });
+
+    it('finds a user by email in any case, and says whether they already work here', async () => {
+      const staff = await createStaff('accountant');
+      const here = await lookup(owner, staff.email.toUpperCase()).expect(200);
+      expect(here.body).toEqual({
+        id: staff.id,
+        name: 'Staff',
+        isActive: true,
+        isPlatformOwner: false,
+        hasAccess: true,
+        role: 'accountant',
+      });
+      // Nothing beyond what adding them needs: no email, phone or other businesses.
+      expect(JSON.stringify(here.body)).not.toContain(staff.email);
+
+      const elsewhere = await lookup(owner, staff.email, shopB.slug).expect(200);
+      expect(elsewhere.body).toMatchObject({ id: staff.id, hasAccess: false, role: null });
+    });
+
+    it('finds a user by phone written either way', async () => {
+      const digits = String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
+      const created = await send(t.server, 'post', `/b/${shopA.slug}/users`, owner, {
+        name: 'Phone Person',
+        phone: `+8801${digits}`,
+        password: TEST_PASSWORD,
+        roleKey: 'salesman',
+      }).expect(201);
+      const id = (created.body as { id: string }).id;
+      data.userIds.push(id);
+
+      const found = await lookup(owner, `01${digits}`).expect(200);
+      expect(found.body).toMatchObject({ id, hasAccess: true, role: 'salesman' });
+      expect(JSON.stringify(found.body)).not.toContain(digits);
+    });
+
+    it('marks a platform owner as having access everywhere', async () => {
+      const boss = await data.createUser({ isPlatformOwner: true });
+      const found = await lookup(owner, boss.email ?? '').expect(200);
+      expect(found.body).toMatchObject({
+        id: boss.id,
+        isPlatformOwner: true,
+        hasAccess: true,
+        role: null,
+      });
+    });
+
+    it('answers 404 for an unknown email or phone, or something that is neither', async () => {
+      for (const identifier of [newEmail(), '01999999999', 'not an identifier']) {
+        const response = await lookup(owner, identifier).expect(404);
+        expect(response.body).toMatchObject({ message: 'User not found' });
+      }
+      await lookup(owner, '').expect(400);
+    });
+
+    it('is only for the platform owner', async () => {
+      const staff = await createStaff('manager');
+      const ownerRoleUser = await data.createUser();
+      await data.giveAccess(ownerRoleUser.id, shopA.id, 'owner');
+      const ownerRole = (await login(t.server, ownerRoleUser.email ?? '', ownerRoleUser.password))
+        .cookies;
+
+      await lookup(manager, staff.email).expect(403);
+      await lookup(ownerRole, staff.email).expect(403);
+    });
+
+    it('audits every lookup without storing the searched email', async () => {
+      const staff = await createStaff('manager');
+      const unknown = newEmail();
+      await lookup(owner, staff.email).expect(200);
+      await lookup(owner, unknown).expect(404);
+
+      const rows = await t.prisma.client.auditLog.findMany({
+        where: { actorUserId: ownerId, action: 'user.lookup', businessId: shopA.id },
+        orderBy: { createdAt: 'desc' },
+        take: 2,
+      });
+      expect(rows.map((row) => row.changes)).toEqual([
+        { by: 'email', found: false },
+        { by: 'email', found: true },
+      ]);
+      expect(rows[1]?.entityId).toBe(staff.id);
+      expect(JSON.stringify(rows)).not.toContain(unknown);
+      expect(JSON.stringify(rows)).not.toContain(staff.email);
+    });
+
+    it('stops a user after 20 lookups a minute (429), counted per user', async () => {
+      const boss = await data.createUser({ isPlatformOwner: true });
+      const cookies = (await login(t.server, boss.email ?? '', boss.password)).cookies;
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < 21; attempt += 1) {
+        statuses.push((await lookup(cookies, newEmail())).status);
+      }
+      expect(statuses.slice(0, 20).every((status) => status === 404)).toBe(true);
+      expect(statuses[20]).toBe(429);
+      // Another user is not affected.
+      await lookup(owner, newEmail()).expect(404);
+    });
+  });
+
   describe('deactivating and resetting passwords', () => {
     it('signs a deactivated user out at once and keeps them out until reactivated', async () => {
       const staff = await createStaff('manager');
