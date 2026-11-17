@@ -269,6 +269,8 @@ Token cookie-তে থাকে এবং `SameSite=Lax`। তাই ব্র
 
 ### macOS 12-এ পাসওয়ার্ড লাইব্রেরি
 
+> macOS 12.7.6-এ `npm ci`, `admin:create` ও লগইন চলে বলে যাচাই হয়েছে (২০২৬-১১-১৭)।
+
 পাসওয়ার্ড hashing `@node-rs/argon2` দিয়ে। এর macOS (Intel) বাইনারি আগে থেকে তৈরি (macOS 10.13 বা নতুনে চলে), তাই `npm install`-এ কিছু compile করতে হয় না। তবু `npm install` বা লগইনে এই লাইব্রেরি নিয়ে সমস্যা হলে `DECISIONS.md`-র "পাসওয়ার্ড লাইব্রেরি" অংশে বিকল্প (বিশুদ্ধ WebAssembly, একই hash ফরম্যাট) লেখা আছে।
 
 ## কমান্ড

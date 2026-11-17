@@ -153,7 +153,7 @@ Passport নেওয়া হয়নি: গার্ড নিজে লে
 - প্ল্যানে `argon2` 0.45.2 ছিল, সাথে শর্ত ছিল "macOS 12-এ না চললে বিকল্প"। প্যাকেজ পরীক্ষা করে দেখা গেল `argon2`-র সাথে আসা আগে-থেকে-তৈরি বাইনারি আছে শুধু `darwin-arm64`, linux, windows ও freebsd-এর; **`darwin-x64` (Intel Mac) নেই**। macOS 12.7.6 যে Mac-এর শেষ সংস্করণ, সেটা Intel Mac হওয়ার সম্ভাবনাই বেশি; তাহলে `npm install` C++ compiler দিয়ে compile করতে যেত, আর ব্যর্থ হলে পুরো `npm install` ভেঙে যেত।
 - `@node-rs/argon2` 2.2.2-র macOS Intel বাইনারি আগে থেকে তৈরি; বাইনারি পরীক্ষা করে দেখা গেছে সেটা macOS 10.13 বা নতুনে চলে (`LC_VERSION_MIN_MACOSX` = 10.13, x86_64)। compile লাগে না, Node ভার্সনের সাথে বাঁধা নয় (Node-API), আর `argon2`-র মতোই থ্রেড-পুলে চলে বলে অনুরোধ আটকায় না।
 - algorithm একই (argon2id), প্যারামিটার একই (OWASP নূন্যতম: 19 MiB, 2 pass, 1 lane), hash-এর ফরম্যাট একই (`$argon2id$v=19$m=19456,t=2,p=1$...`)। তাই ভবিষ্যতে অন্য লাইব্রেরিতে গেলেও আগের পাসওয়ার্ড কাজ করবে।
-- **Mac-এ যাচাই বাকি:** `npm install`, `npm run admin:create`, লগইন (নিচের তালিকা)। না চললে বিকল্প: বিশুদ্ধ WebAssembly argon2id (`hash-wasm`)। তাতে কোনো নেটিভ বাইনারি লাগে না, কিন্তু hash চলার সময় event loop আটকে থাকে (প্রতি লগইনে প্রায় ১০০ ms), তাই লগইনের rate limit থাকা অবস্থায় গ্রহণযোগ্য।
+- **macOS 12.7.6-এ যাচাই সম্পন্ন** (২০২৬-১১-১৭; নিচের তালিকা)। নিচের বিকল্প দরকার পড়েনি, ভবিষ্যতে সমস্যা হলে কাজে লাগবে বলে রাখা: বিশুদ্ধ WebAssembly argon2id (`hash-wasm`)। তাতে কোনো নেটিভ বাইনারি লাগে না, কিন্তু hash চলার সময় event loop আটকে থাকে (প্রতি লগইনে প্রায় ১০০ ms), তাই লগইনের rate limit থাকা অবস্থায় গ্রহণযোগ্য।
 
 ### মালিক-স্তর: platform owner বনাম ব্যবসা-স্তরের `owner` রোল (মালিকের নির্দেশ)
 
@@ -211,8 +211,10 @@ Passport নেওয়া হয়নি: গার্ড নিজে লে
 - Prisma Client-এর স্বয়ংক্রিয় `businessId` extension: প্রথম ব্যবসা-ডেটার টেবিলের (Product/Customer) ধাপে, তখন ঠিকমতো পরীক্ষা করা যাবে।
 - forgot-password, token-কে response body-তে দেওয়া (মোবাইল), Redis, audit দেখার API।
 
-### লোকালে যাচাই বাকি (macOS 12.7.6), Step 3a
+### macOS 12.7.6-এ যাচাই সম্পন্ন (২০২৬-১১-১৭), Step 3a
 
 | প্যাকেজ | কোন কমান্ডে লাগে | অবস্থা |
 |---|---|---|
-| `@node-rs/argon2` (আগে-থেকে-তৈরি Intel বাইনারি, macOS ≥ 10.13) | `npm install`, `npm run admin:create`, লগইন | যাচাই বাকি |
+| `@node-rs/argon2` (আগে-থেকে-তৈরি Intel বাইনারি, macOS ≥ 10.13) | `npm install`, `npm run admin:create`, লগইন | macOS 12.7.6-এ যাচাই সম্পন্ন |
+
+ডেভেলপারের Mac-এ (macOS 12.7.6, Node 22) সব ধাপ সফল: `npm ci`, `npm run db:deploy`, `npm run db:seed`, `npm run admin:create`, `npm run start:dev`, এবং README-র "লগইন যাচাই (curl)" ধাপগুলো।
