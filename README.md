@@ -161,6 +161,7 @@ phone `01XXXXXXXXX`, `8801XXXXXXXXX` বা `+8801XXXXXXXXX`, যেভাবে
 | `PUT roles/:roleKey/permissions` | `roles.manage` | একটা রোলের অনুমতির পুরো তালিকা বসানো (`{ "permissions": ["stock.view", ...] }`) |
 | `GET users?page=1` | `users.view` | ব্যবসার ইউজার, প্রতি পাতায় ১০ জন |
 | `POST users` | `users.manage` | ইউজার তৈরি ও রোল বরাদ্দ (`name`, `email` বা `phone`, `password`, `roleKey`) |
+| `POST users/lookup` | `users.manage` | ইমেইল বা ফোন দিয়ে বিদ্যমান ইউজার খোঁজা (id, নাম, অবস্থা, এই ব্যবসায় আছেন কি না); প্রতি ইউজার মিনিটে ২০টা, audit-এ লেখা |
 | `POST users/:userId/access` | `users.manage` | বিদ্যমান ইউজারকে এই ব্যবসায় রোলসহ ঢোকার অনুমতি |
 | `PATCH users/:userId/role` | `users.manage` | রোল বদল |
 | `DELETE users/:userId/access` | `users.manage` | এই ব্যবসার অ্যাক্সেস সরানো (ইউজার মোছা নয়) |
