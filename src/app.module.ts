@@ -8,6 +8,7 @@ import { JwtAuthGuard } from './core/auth/jwt-auth.guard';
 import { validateEnv } from './core/config/env.validation';
 import { DatabaseModule } from './core/database/database.module';
 import { HealthModule } from './core/health/health.module';
+import { NumberingModule } from './core/numbering/numbering.module';
 import { BusinessAccessGuard } from './core/permissions/business-access.guard';
 import { PermissionGuard } from './core/permissions/permission.guard';
 import { PermissionsModule } from './core/permissions/permissions.module';
@@ -19,6 +20,7 @@ import { DealershipModule } from './modules/dealership/dealership.module';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     DatabaseModule,
     AuditModule,
+    NumberingModule,
     PermissionsModule,
     AuthModule,
     AccessModule,

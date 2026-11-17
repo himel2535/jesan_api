@@ -26,7 +26,8 @@
     "db:status": "prisma migrate status",
     "db:seed": "prisma db seed",
     "db:check": "prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
-    "admin:create": "node prisma/admin-create.mjs"
+    "admin:create": "node prisma/admin-create.mjs",
+    "db:seed:dev": "node prisma/seed-dev.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.5.0",

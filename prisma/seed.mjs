@@ -1,29 +1,8 @@
-// Base data only: default roles and the first business. No users or passwords.
+// Base data only: default roles, the first business and its principal supplier.
+// No users or passwords, and no sample data (that is prisma/seed-dev.mjs).
 // Idempotent: existing rows are never changed, so it is safe to run repeatedly.
 // Plain JavaScript on purpose, so it runs with `node` alone (no TypeScript runner).
-import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import pg from 'pg';
-
-if (existsSync('.env')) {
-  process.loadEnvFile('.env');
-}
-
-const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error('Seed needs DIRECT_URL or DATABASE_URL to be set.');
-  process.exit(1);
-}
-
-/** UUID v7 (time-ordered), matching the ids Prisma generates for these tables. */
-function uuidv7() {
-  const bytes = randomBytes(16);
-  bytes.writeUIntBE(Date.now(), 0, 6);
-  bytes[6] = (bytes[6] & 0x0f) | 0x70;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
+import { connect, formatCode, nextNumber, prefixFor, uuidv7 } from './seed-helpers.mjs';
 
 const roles = [
   { key: 'owner', nameEn: 'Owner', nameBn: 'মালিক' },
@@ -39,14 +18,15 @@ const businesses = [
     nameBn: 'আকিজ সিমেন্ট',
     type: 'dealership',
     config: {
-      unit: { key: 'bag', nameEn: 'Bag', nameBn: 'বস্তা', decimals: 0 },
+      units: [{ key: 'bag', nameEn: 'Bag', nameBn: 'বস্তা', decimals: 0 }],
+      defaultUnit: 'bag',
+      codePrefixes: { product: 'P', customer: 'C', supplier: 'S' },
       principalSupplier: { nameEn: 'Akij Cement', nameBn: 'আকিজ সিমেন্ট' },
     },
   },
 ];
 
-const client = new pg.Client({ connectionString });
-await client.connect();
+const client = await connect('Seed');
 try {
   await client.query('BEGIN');
   let created = 0;
@@ -76,6 +56,31 @@ try {
     );
     created += result.rowCount ?? 0;
   }
+
+  // Each dealership's principal supplier, taken from its config (one per business).
+  const dealerships = await client.query(
+    `SELECT b.id, b.config FROM businesses b
+     WHERE b.type = 'dealership'
+       AND b.config ? 'principalSupplier'
+       AND NOT EXISTS (SELECT 1 FROM suppliers s WHERE s.business_id = b.id AND s.is_principal)`,
+  );
+  for (const business of dealerships.rows) {
+    const principal = business.config.principalSupplier;
+    const number = await nextNumber(client, business.id, 'supplier');
+    await client.query(
+      `INSERT INTO suppliers (id, business_id, code, name_en, name_bn, is_principal, updated_at)
+       VALUES ($1, $2, $3, $4, $5, true, now())`,
+      [
+        uuidv7(),
+        business.id,
+        formatCode(prefixFor(business.config, 'supplier', 'S'), number, 3),
+        principal.nameEn,
+        principal.nameBn ?? principal.nameEn,
+      ],
+    );
+    created += 1;
+  }
+
   await client.query('COMMIT');
   console.log(`Seed finished: ${String(created)} row(s) created, existing rows left untouched.`);
 } catch (error) {

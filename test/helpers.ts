@@ -142,11 +142,18 @@ export class TestData {
     return { id: user.id, email, phone, password };
   }
 
-  /** A dealership business with the default permission grants. */
-  async createBusiness(label: string): Promise<{ id: string; slug: string }> {
+  /** A dealership business (sold in bags by default) with the default permission grants. */
+  async createBusiness(
+    label: string,
+    config: object = {
+      units: [{ key: 'bag', nameEn: 'Bag', nameBn: 'বস্তা', decimals: 0 }],
+      defaultUnit: 'bag',
+      principalSupplier: { nameEn: 'Principal Co', nameBn: 'প্রধান কোম্পানি' },
+    },
+  ): Promise<{ id: string; slug: string }> {
     const slug = `${label}-${this.tag}-${uniqueTag()}`;
     const business = await this.t.prisma.client.business.create({
-      data: { slug, nameEn: `Shop ${label}`, nameBn: `দোকান ${label}`, type: 'dealership' },
+      data: { slug, nameEn: `Shop ${label}`, nameBn: `দোকান ${label}`, type: 'dealership', config },
       select: { id: true },
     });
     this.businessIds.push(business.id);
@@ -179,6 +186,20 @@ export class TestData {
       },
     });
     await db.session.deleteMany({ where: { userId: { in: userIds } } });
+    // Business data is removed with raw SQL on purpose: the Prisma client refuses
+    // business-data queries that are not limited to one business.
+    for (const table of [
+      'products',
+      'product_categories',
+      'customers',
+      'suppliers',
+      'document_counters',
+    ]) {
+      await db.$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE business_id = ANY($1::uuid[])`,
+        businessIds,
+      );
+    }
     await db.rolePermission.deleteMany({ where: { businessId: { in: businessIds } } });
     await db.userBusinessAccess.deleteMany({
       where: { OR: [{ userId: { in: userIds } }, { businessId: { in: businessIds } }] },

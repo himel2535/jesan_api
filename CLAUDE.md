@@ -39,7 +39,7 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 - Schema বদলালে: `npm run db:migrate` দিয়ে নতুন migration বানাও; পুরনো migration ফাইল কখনো সম্পাদনা নয়। CHECK constraint migration SQL-এ হাতে লেখো।
 - টেস্ট আসল ডাটাবেসে চালাও: `DATABASE_URL` সেট করে `npm run db:deploy`, তারপর `npm test`।
 - `src/generated/` git-এ নয়; `PrismaService` (`src/core/database`) ছাড়া অন্য কোথাও `PrismaClient` বানানো নয়।
-- Seed-এ কোনো ইউজার বা পাসওয়ার্ড নয়।
+- Seed-এ কোনো ইউজার বা পাসওয়ার্ড নয়। নমুনা ডেটা শুধু `prisma/seed-dev.mjs`-এ (production-এ চলে না), আসল ব্যবসার তথ্য ছাড়া।
 
 ## লগইন, রোল ও অনুমতি
 
@@ -50,7 +50,17 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 - পাসওয়ার্ড, token বা hash কখনো লগে, audit-এ বা response-এ নয়। ব্যর্থ লগইনে সবসময় একই বার্তা।
 - অনুমতি বা রোল বদলালে `AccessResolver`-এর cache মোছো (`invalidateBusiness` / `invalidateUser`) এবং `audit_logs`-এ লেখো।
 - API-র কোনো endpoint, request, response, ত্রুটি বা অনুমতি বদলালে একই PR-এ `docs/API.md` হালনাগাদ করো (frontend এটার উপর নির্ভর করে)।
-- সব ব্যবসা-ডেটার query-তে `businessId` দিয়ে ফিল্টার; Prisma Client-এ স্বয়ংক্রিয় `businessId` extension প্রথম ব্যবসা-ডেটার টেবিলের ধাপে আসবে।
+
+
+## ব্যবসা-ডেটা (business data)
+
+- ব্যবসা-ডেটার প্রতিটা টেবিলে `business_id` (FK, RESTRICT), সব composite index `business_id` দিয়ে শুরু; module নিজের মডেল `registerTenantModels([...])`-এ ঘোষণা করবে।
+- এই মডেলে query সবসময় `prisma.forBusiness(access.businessId)` দিয়ে (`access` আসে `@CurrentAccess()` থেকে)। `prisma.client` দিয়ে `businessId` ছাড়া query ত্রুটি দেয়; সেটা এড়াতে কখনো `businessId` হাতে বসিয়ে ঘুরপথ নয়।
+- ব্যবসা-ডেটায় nested write বা অন্য টেবিলের `include` দিয়ে ব্যবসা-ডেটা পড়া নয় (scope সেখানে পৌঁছায় না)। raw SQL শুধু core-এর নির্দিষ্ট সাহায্যকারীতে (যেমন `DocumentCounterService`), আর তাতে নিজে `business_id` দিতে হবে।
+- নম্বর বা কোড সবসময় `DocumentCounterService.next(tx, ...)` দিয়ে, একই transaction-এ; কখনো `count(*)` বা `max()+1` নয়।
+- টাকা `Decimal(14,2)`, পরিমাণ `Decimal(14,3)`; API-তে টাকা স্ট্রিং (`"570.00"`), JavaScript-এ টাকার হিসাব নয়। balance-এর মতো জমানো মান atomic `increment`-এ বদলাও।
+- কিছুই মোছা নয়, নিষ্ক্রিয়। আর্থিক প্রভাবের সংশোধন (দাম, বাকি, সীমা, নিষ্ক্রিয়) আলাদা অনুমতি ও `reason` চায় এবং audit-এ আগের/পরের মান লেখে; ডিফল্টে শুধু মালিক-স্তরের।
+- অন্য ব্যবসার id দিলে 404। প্রতিটা নতুন ব্যবসা-ডেটার টেবিলে বিচ্ছিন্নতার টেস্ট দাও।
 
 ## পারফরম্যান্স চেকলিস্ট (প্রপোজাল সেকশন ৯.৬): প্রতিটা feature শেষে
 
@@ -86,4 +96,4 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 
 ## কমান্ড
 
-`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:check` · `npm run admin:create`
+`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:seed:dev` · `npm run db:check` · `npm run admin:create`
