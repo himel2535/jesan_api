@@ -49,6 +49,7 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 - টাকার সংবেদনশীল ফিল্ড সার্ভারে লুকাও (`@VisibleWith` + `@SerializeWith`), শুধু frontend-এ নয়। প্রতিটা নতুন গোপন ফিল্ডে এই ধরনের টেস্ট দাও।
 - পাসওয়ার্ড, token বা hash কখনো লগে, audit-এ বা response-এ নয়। ব্যর্থ লগইনে সবসময় একই বার্তা।
 - অনুমতি বা রোল বদলালে `AccessResolver`-এর cache মোছো (`invalidateBusiness` / `invalidateUser`) এবং `audit_logs`-এ লেখো।
+- API-র কোনো endpoint, request, response, ত্রুটি বা অনুমতি বদলালে একই PR-এ `docs/API.md` হালনাগাদ করো (frontend এটার উপর নির্ভর করে)।
 - সব ব্যবসা-ডেটার query-তে `businessId` দিয়ে ফিল্টার; Prisma Client-এ স্বয়ংক্রিয় `businessId` extension প্রথম ব্যবসা-ডেটার টেবিলের ধাপে আসবে।
 
 ## পারফরম্যান্স চেকলিস্ট (প্রপোজাল সেকশন ৯.৬): প্রতিটা feature শেষে
