@@ -14,7 +14,8 @@ Product ও Category, Customer, Supplier, Buy, Sell, Stock, Due collection, Comm
 
 ## এখন যা আছে
 
-- `dealership.permissions.ts`: এই module-এর অনুমতির ঘোষণা (কোন অনুমতি, কোন রোল ডিফল্টে পায়, কোনগুলো owner-only: `commission.*`, `profit.view`)।
-- `dealership.module.ts`: অনুমতিগুলো core-এর registry-তে নিবন্ধন করে।
+- `dealership.permissions.ts`: এই module-এর অনুমতি (কোনটা owner-only, কোন রোল ডিফল্টে পায়) এবং ব্যবসা-ডেটার মডেলের তালিকা।
+- `dealership.config.ts`: ব্যবসার settings (`businesses.config`) পড়া: এককের তালিকা, প্রধান একক, কোডের prefix, প্রিন্সিপাল সরবরাহকারী। পুরনো রূপও বোঝে।
+- `master-data/`: ক্যাটাগরি, পণ্য, গ্রাহক, সরবরাহকারীর API (তালিকা, অনুসন্ধান, তৈরি, সম্পাদনা, নিষ্ক্রিয়)। সব query `prisma.forBusiness(...)` দিয়ে।
 
-কোনো ফিচার (পণ্য, বিক্রি, কেনা, কমিশন) এখনো নেই।
+কেনা, বিক্রি, স্টক, খাতা, কমিশন এখনো নেই। BSRM-এর মতো নতুন ডিলারশিপ = নতুন ব্যবসার সারি ও config; এই module-এর কোড বদলাতে হয় না (টেস্টে যাচাই করা)।

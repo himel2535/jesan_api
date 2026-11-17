@@ -11,7 +11,8 @@
 ## এখন যা আছে
 
 - `config/`: environment variable ভ্যালিডেশন।
-- `database/`: `DatabaseModule` (global) ও `PrismaService`। একটাই Prisma client ও connection pool। অন্য service-এ `PrismaService` inject করে `prisma.client` ব্যবহার করো।
+- `database/`: `DatabaseModule` (global) ও `PrismaService`। একটাই Prisma client ও connection pool। প্ল্যাটফর্মের টেবিলে `prisma.client`; ব্যবসা-ডেটায় `prisma.forBusiness(businessId)`, যা প্রতিটা query-তে `businessId` নিজে বসায়। `tenant-scope.ts`: কোন মডেল ব্যবসা-ডেটা (module-রা ঘোষণা করে) এবং `businessId` ছাড়া query আটকানোর নিয়ম।
+- `numbering/`: `DocumentCounterService`: ব্যবসা, ধরন ও সময়কাল অনুযায়ী পরের নম্বর (কোড, invoice নম্বর), এক atomic SQL-এ।
 - `health/`: `GET /api/v1/health` (liveness, কোনো I/O নয়) ও `GET /api/v1/health/ready` (ডাটাবেস চেক)।
 - `auth/`: লগইন (email বা phone + পাসওয়ার্ড), refresh, logout, `me`, পাসওয়ার্ড বদল। argon2id, httpOnly cookie, refresh token rotation, লক ও rate limit।
 - `permissions/`: অনুমতির নিবন্ধন (`PermissionRegistry`), গার্ড (`BusinessAccessGuard`, `PermissionGuard`), `@RequirePermission`, `AccessResolver` (cache সহ), এবং সার্ভারে ফিল্ড লুকানোর ব্যবস্থা (`@VisibleWith`, `@SerializeWith`)।

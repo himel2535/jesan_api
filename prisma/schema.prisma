@@ -28,9 +28,14 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  access          UserBusinessAccess[]
-  rolePermissions RolePermission[]
-  auditLogs       AuditLog[]
+  access            UserBusinessAccess[]
+  rolePermissions   RolePermission[]
+  auditLogs         AuditLog[]
+  documentCounters  DocumentCounter[]
+  productCategories ProductCategory[]
+  products          Product[]
+  customers         Customer[]
+  suppliers         Supplier[]
 
   @@map("businesses")
 }
@@ -58,6 +63,11 @@ model User {
   access    UserBusinessAccess[]
   sessions  Session[]
   auditLogs AuditLog[]
+
+  createdCategories ProductCategory[]
+  createdProducts   Product[]
+  createdCustomers  Customer[]
+  createdSuppliers  Supplier[]
 
   @@map("users")
 }
@@ -190,4 +200,149 @@ model AuditLog {
   @@index([actorUserId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+/// Next number per business, document type and period (a year, or 0 for master
+/// data). Incremented with one atomic INSERT ... ON CONFLICT ... RETURNING inside
+/// the transaction that uses the number: never count(*) or max() + 1.
+model DocumentCounter {
+  businessId String   @map("business_id") @db.Uuid
+  docType    String   @map("doc_type") @db.VarChar(32)
+  period     Int      @default(0)
+  lastValue  BigInt   @map("last_value")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([businessId, docType, period])
+  @@map("document_counters")
+}
+
+// ---------------------------------------------------------------------------
+// Dealership module: master data. Every table here is business data: always
+// queried through PrismaService.forBusiness(businessId). Never deleted, only
+// deactivated. Case-insensitive unique names and the one-principal-supplier rule are
+// added in the migration SQL (Prisma cannot express them).
+// ---------------------------------------------------------------------------
+
+model ProductCategory {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  nameEn     String   @map("name_en") @db.VarChar(120)
+  nameBn     String   @map("name_bn") @db.VarChar(120)
+  sortOrder  Int      @default(0) @map("sort_order")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  creator  User?     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  products Product[]
+
+  // Target of the composite foreign key from products (same business only).
+  @@unique([businessId, id])
+  @@index([businessId, isActive, sortOrder])
+  @@index([createdBy])
+  @@map("product_categories")
+}
+
+model Product {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  /// Generated from document_counters, e.g. P-0001. Never changes.
+  code             String   @db.VarChar(32)
+  categoryId       String   @map("category_id") @db.Uuid
+  nameEn           String   @map("name_en") @db.VarChar(120)
+  nameBn           String   @map("name_bn") @db.VarChar(120)
+  /// One of the unit keys in the business config (Akij: "bag").
+  unitKey          String   @map("unit_key") @db.VarChar(16)
+  /// Current cost price. Hidden without product.cost.view.
+  purchasePrice    Decimal  @map("purchase_price") @db.Decimal(14, 2)
+  /// Default selling price; each sale may use another price.
+  defaultSalePrice Decimal  @map("default_sale_price") @db.Decimal(14, 2)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdBy        String?  @map("created_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category ProductCategory @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  creator  User?           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, code])
+  @@index([businessId, categoryId])
+  // Matches the list order (name, then id) so pages are read straight from the index.
+  @@index([businessId, isActive, nameEn, id])
+  @@index([createdBy])
+  // Trigram indexes for "contains" search (pg_trgm, created in the migration).
+  @@index([nameEn(ops: raw("gin_trgm_ops"))], map: "products_name_en_trgm_idx", type: Gin)
+  @@index([nameBn(ops: raw("gin_trgm_ops"))], map: "products_name_bn_trgm_idx", type: Gin)
+  @@index([code(ops: raw("gin_trgm_ops"))], map: "products_code_trgm_idx", type: Gin)
+  @@map("products")
+}
+
+model Customer {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  /// Generated from document_counters, e.g. C-00001. Never changes.
+  code           String   @db.VarChar(32)
+  nameEn         String   @map("name_en") @db.VarChar(120)
+  nameBn         String?  @map("name_bn") @db.VarChar(120)
+  /// Required, E.164 (+8801XXXXXXXXX), unique within the business.
+  phone          String   @db.VarChar(20)
+  address        String?  @db.VarChar(255)
+  area           String?  @db.VarChar(80)
+  /// Positive: the customer owes us. Negative: an advance we owe them.
+  openingBalance Decimal  @map("opening_balance") @db.Decimal(14, 2)
+  /// Kept up to date in the same transaction as every sale and collection,
+  /// so due lists never add up all transactions.
+  currentBalance Decimal  @map("current_balance") @db.Decimal(14, 2)
+  /// Null means no limit.
+  creditLimit    Decimal? @map("credit_limit") @db.Decimal(14, 2)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  creator  User?    @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, code])
+  @@unique([businessId, phone])
+  // Matches the list order (name, then id) so pages are read straight from the index.
+  @@index([businessId, isActive, nameEn, id])
+  @@index([businessId, currentBalance])
+  @@index([createdBy])
+  // Trigram indexes for "contains" search (pg_trgm, created in the migration).
+  @@index([nameEn(ops: raw("gin_trgm_ops"))], map: "customers_name_en_trgm_idx", type: Gin)
+  @@index([nameBn(ops: raw("gin_trgm_ops"))], map: "customers_name_bn_trgm_idx", type: Gin)
+  @@index([phone(ops: raw("gin_trgm_ops"))], map: "customers_phone_trgm_idx", type: Gin)
+  @@index([code(ops: raw("gin_trgm_ops"))], map: "customers_code_trgm_idx", type: Gin)
+  @@map("customers")
+}
+
+model Supplier {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  code        String   @db.VarChar(32)
+  nameEn      String   @map("name_en") @db.VarChar(120)
+  nameBn      String   @map("name_bn") @db.VarChar(120)
+  phone       String?  @db.VarChar(20)
+  address     String?  @db.VarChar(255)
+  /// The principal supplier of a dealership (one per business, enforced by a
+  /// partial unique index in the migration).
+  isPrincipal Boolean  @default(false) @map("is_principal")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  creator  User?    @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, code])
+  @@index([businessId, isActive, nameEn])
+  @@index([createdBy])
+  @@map("suppliers")
 }

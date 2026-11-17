@@ -4,6 +4,12 @@ import { PermissionGroup } from '../../core/permissions/permission-registry';
 export const DEALERSHIP_TYPE = 'dealership';
 
 /**
+ * Prisma models that hold business data. Queries on them must go through
+ * PrismaService.forBusiness(businessId); unscoped queries are refused.
+ */
+export const DEALERSHIP_TENANT_MODELS = ['ProductCategory', 'Product', 'Customer', 'Supplier'];
+
+/**
  * Permissions of the dealership module (declarations only, no features yet).
  * Defaults can be changed per business by the owner in Settings. Commission and
  * profit permissions are owner-only: nobody but the platform owner can hold them.
@@ -15,9 +21,15 @@ export const DEALERSHIP_PERMISSIONS: PermissionGroup = {
     { key: 'product.view', defaultRoles: ['manager', 'salesman'] },
     { key: 'product.manage', defaultRoles: ['manager'] },
     { key: 'product.cost.view', defaultRoles: ['manager'] },
+    // Changing a price or deactivating after creation: owner level only by
+    // default (staff will send a change request instead, Step 4b).
+    { key: 'product.price.edit' },
+    { key: 'product.deactivate' },
     { key: 'customer.view', defaultRoles: ['manager', 'salesman', 'accountant'] },
     { key: 'customer.manage', defaultRoles: ['manager', 'salesman'] },
     { key: 'customer.due.view', defaultRoles: ['manager', 'accountant'] },
+    { key: 'customer.balance.edit' },
+    { key: 'customer.deactivate' },
     { key: 'collection.create', defaultRoles: ['manager', 'accountant'] },
     { key: 'supplier.view', defaultRoles: ['manager'] },
     { key: 'purchase.view', defaultRoles: ['manager'] },
