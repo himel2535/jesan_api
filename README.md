@@ -117,6 +117,8 @@ Neon ড্যাশবোর্ডে আপনার **dev branch**-এর "Co
 
 ### লগইন, রোল ও অনুমতি
 
+request ও response-এর পুরো রূপ, ত্রুটির কোড ও refresh-এর নিয়ম: [docs/API.md](./docs/API.md)।
+
 ### Endpoint
 
 | Endpoint | কাজ |
@@ -331,5 +333,7 @@ test/                e2e টেস্ট
 prisma/              schema, migration, seed, admin-create
 prisma.config.ts     Prisma CLI-র কনফিগ
 ```
+
+frontend-এর জন্য পুরো API রেফারেন্স (endpoint, request/response, ত্রুটি, cookie, অনুমতি): [docs/API.md](./docs/API.md)।
 
 সিদ্ধান্ত ও ভার্সন তালিকা: [DECISIONS.md](./DECISIONS.md)। কাজের নিয়ম: [CLAUDE.md](./CLAUDE.md)।
