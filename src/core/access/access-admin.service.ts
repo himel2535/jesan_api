@@ -165,6 +165,7 @@ export class AccessAdminService {
               email: true,
               phone: true,
               isActive: true,
+              isPlatformOwner: true,
               lastLoginAt: true,
             },
           },

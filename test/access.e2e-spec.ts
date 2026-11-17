@@ -241,6 +241,51 @@ describe.skipIf(!hasDatabase)('Settings: users, roles and permissions', () => {
       await get(t.server, `/b/${shop.slug}/users?page=0`, owner).expect(400);
     });
 
+    it('shows every listed user with isPlatformOwner, leaves platform owners out, and allows the owner role', async () => {
+      const shop = await data.createBusiness('listing');
+      const staff = await createStaff('owner', shop.slug);
+      const response = await get(t.server, `/b/${shop.slug}/users`, owner).expect(200);
+      const items = (response.body as { items: Record<string, unknown>[] }).items;
+
+      expect(items).toHaveLength(1);
+      expect(Object.keys(items[0] ?? {}).sort()).toEqual(
+        [
+          'email',
+          'id',
+          'isActive',
+          'isPlatformOwner',
+          'lastLoginAt',
+          'name',
+          'phone',
+          'role',
+        ].sort(),
+      );
+      expect(items[0]).toMatchObject({
+        id: staff.id,
+        role: 'owner',
+        isPlatformOwner: false,
+        lastLoginAt: null,
+      });
+      // The platform owner enters every business without a membership row, so is not listed.
+      expect(items.map((item) => item.id)).not.toContain(ownerId);
+    });
+
+    it('does not reveal the existing user id in a duplicate (409) answer', async () => {
+      const staff = await createStaff('manager');
+      const duplicate = await send(t.server, 'post', `/b/${shopA.slug}/users`, owner, {
+        name: 'Copy',
+        email: staff.email,
+        password: TEST_PASSWORD,
+        roleKey: 'manager',
+      }).expect(409);
+      expect(JSON.stringify(duplicate.body)).not.toContain(staff.id);
+      expect(Object.keys(duplicate.body as object).sort()).toEqual([
+        'error',
+        'message',
+        'statusCode',
+      ]);
+    });
+
     it('grants an existing user access to another business, and changes or removes it at once', async () => {
       const staff = await createStaff('manager');
       const session = (await login(t.server, staff.email, TEST_PASSWORD)).cookies;
