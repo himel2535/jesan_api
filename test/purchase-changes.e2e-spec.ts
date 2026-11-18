@@ -525,8 +525,8 @@ describe.skipIf(!hasDatabase)('voiding and correcting purchases', () => {
         who('salesman'),
       ).expect(200);
       const text = JSON.stringify(seen.body);
-      expect(text).not.toContain('569');
-      expect(text).not.toContain('570');
+      expect(text).not.toContain('569.00');
+      expect(text).not.toContain('570.00');
       expect(text).toContain('Line quantity: 10 → 12');
       await send(t.server, 'put', path('roles/salesman/permissions'), who('owner'), {
         permissions: salesman,

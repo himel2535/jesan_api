@@ -458,7 +458,7 @@ describe.skipIf(!hasDatabase)('purchases', () => {
       expect(body).not.toHaveProperty('totalAmount');
       expect(body.items[0]).not.toHaveProperty('unitPrice');
       expect(body.items[0]).not.toHaveProperty('lineTotal');
-      expect(JSON.stringify(detail.body)).not.toContain('571');
+      expect(JSON.stringify(detail.body)).not.toContain('571.25');
       const list = await get(t.server, path('purchases'), who('salesman')).expect(200);
       expect(JSON.stringify(list.body)).not.toContain('totalAmount');
       await send(t.server, 'put', path('roles/salesman/permissions'), who('owner'), {

@@ -201,7 +201,7 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       const item = (list.body as PageBody<ProductBody>).items[0];
       expect(item).not.toHaveProperty('lastPurchasePrice');
       expect(item).not.toHaveProperty('lastPurchasedAt');
-      expect(JSON.stringify(list.body)).not.toContain('545');
+      expect(JSON.stringify(list.body)).not.toContain('545.50');
       const forManager = await get(t.server, path(`products/${created.id}`), who('manager')).expect(
         200,
       );

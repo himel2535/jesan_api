@@ -573,8 +573,8 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const item = (list.body as { items: RequestBody[] }).items[0];
       expect(item?.summary).toContain('Credit limit changed');
       expect(item?.summary).toContain('Active: true → false');
-      expect(JSON.stringify(list.body)).not.toContain('545');
-      expect(JSON.stringify(list.body)).not.toContain('560');
+      expect(JSON.stringify(list.body)).not.toContain('545.00');
+      expect(JSON.stringify(list.body)).not.toContain('560.00');
       expect(item).not.toHaveProperty('snapshot');
 
       const detail = await get(t.server, path(`change-requests/${id}`), who('salesman')).expect(

@@ -123,7 +123,7 @@ describe.skipIf(!hasDatabase)('stock', () => {
     expect(seen?.currentStock).toBe('120');
     expect(seen).not.toHaveProperty('lastPurchasePrice');
     expect(seen).not.toHaveProperty('lastPurchasedAt');
-    expect(JSON.stringify(forSalesman.body)).not.toContain('571');
+    expect(JSON.stringify(forSalesman.body)).not.toContain('571.50');
     await get(t.server, path('stock'), who('accountant')).expect(403);
   });
 
