@@ -37,6 +37,10 @@ model Business {
   customers         Customer[]
   suppliers         Supplier[]
   changeRequests    ChangeRequest[]
+  purchases         Purchase[]
+  purchaseItems     PurchaseItem[]
+  stockMovements    StockMovement[]
+  purchaseCounters  MonthlyPurchaseCounter[]
 
   @@map("businesses")
 }
@@ -75,6 +79,10 @@ model User {
   updatedSuppliers  Supplier[]        @relation("updatedSuppliers")
   requestedChanges  ChangeRequest[]   @relation("requestedChanges")
   decidedChanges    ChangeRequest[]   @relation("decidedChanges")
+  createdPurchases  Purchase[]        @relation("createdPurchases")
+  updatedPurchases  Purchase[]        @relation("updatedPurchases")
+  voidedPurchases   Purchase[]        @relation("voidedPurchases")
+  stockMovements    StockMovement[]
 
   @@map("users")
 }
@@ -274,6 +282,9 @@ model Product {
   /// without product.cost.view.
   lastPurchasePrice Decimal?  @map("last_purchase_price") @db.Decimal(14, 2)
   lastPurchasedAt   DateTime? @map("last_purchased_at") @db.Timestamptz(3)
+  /// Stock on hand, kept in the same transaction as every stock movement; equals
+  /// the sum of the product's movements. Never negative (CHECK).
+  currentStock      Decimal   @default(0) @map("current_stock") @db.Decimal(14, 3)
   isActive          Boolean   @default(true) @map("is_active")
   createdBy         String?   @map("created_by") @db.Uuid
   updatedBy         String?   @map("updated_by") @db.Uuid
@@ -287,7 +298,12 @@ model Product {
   creator  User?           @relation("createdProducts", fields: [createdBy], references: [id], onDelete: Restrict)
   updater  User?           @relation("updatedProducts", fields: [updatedBy], references: [id], onDelete: Restrict)
 
+  purchaseItems  PurchaseItem[]
+  stockMovements StockMovement[]
+
   @@unique([businessId, code])
+  // Target of composite foreign keys from business data (same-business rows only).
+  @@unique([businessId, id])
   @@index([businessId, categoryId])
   // Matches the list order (name, then id) so pages are read straight from the index.
   @@index([businessId, isActive, nameEn, id])
@@ -368,7 +384,10 @@ model Supplier {
   creator  User?    @relation("createdSuppliers", fields: [createdBy], references: [id], onDelete: Restrict)
   updater  User?    @relation("updatedSuppliers", fields: [updatedBy], references: [id], onDelete: Restrict)
 
+  purchases Purchase[]
+
   @@unique([businessId, code])
+  @@unique([businessId, id])
   @@index([businessId, isActive, nameEn])
   @@index([createdBy])
   @@index([updatedBy])
@@ -419,4 +438,132 @@ model ChangeRequest {
   @@index([requestedBy])
   @@index([decidedBy])
   @@map("change_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Dealership module: purchases and stock (Step 5a). Business data: always
+// through PrismaService.forBusiness(businessId). Nothing is deleted: purchases
+// are voided, stock movements are append-only (a trigger refuses UPDATE and
+// DELETE). Composite foreign keys keep every row inside one business.
+// ---------------------------------------------------------------------------
+
+/// A cash purchase from a supplier (the principal supplier by default).
+model Purchase {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  /// From document_counters, e.g. PUR-0001. Never changes.
+  code              String    @db.VarChar(32)
+  supplierId        String    @map("supplier_id") @db.Uuid
+  /// The business's calendar date (its time zone, Asia/Dhaka by default).
+  purchaseDate      DateTime  @map("purchase_date") @db.Date
+  /// Only "cash" for now: every purchase is fully paid.
+  paymentMethod     String    @default("cash") @map("payment_method") @db.VarChar(16)
+  totalQuantity     Decimal   @map("total_quantity") @db.Decimal(14, 3)
+  totalAmount       Decimal   @map("total_amount") @db.Decimal(14, 2)
+  /// active or void (CHECK in the migration).
+  status            String    @default("active") @db.VarChar(8)
+  note              String?   @db.VarChar(500)
+  /// The supplier's own paper number, if any.
+  supplierReference String?   @map("supplier_reference") @db.VarChar(64)
+  idempotencyKey    String?   @map("idempotency_key") @db.VarChar(64)
+  /// Bumped on every change; a change request is stale when it no longer matches.
+  version           Int       @default(1)
+  createdBy         String    @map("created_by") @db.Uuid
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  voidedBy          String?   @map("voided_by") @db.Uuid
+  voidedAt          DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidReason        String?   @map("void_reason") @db.VarChar(500)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  supplier Supplier       @relation(fields: [businessId, supplierId], references: [businessId, id], onDelete: Restrict)
+  creator  User           @relation("createdPurchases", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?          @relation("updatedPurchases", fields: [updatedBy], references: [id], onDelete: Restrict)
+  voider   User?          @relation("voidedPurchases", fields: [voidedBy], references: [id], onDelete: Restrict)
+  items    PurchaseItem[]
+
+  @@unique([businessId, code])
+  @@unique([businessId, id])
+  // The list: newest first.
+  @@index([businessId, purchaseDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, supplierId, purchaseDate(sort: Desc)])
+  @@index([businessId, status, purchaseDate(sort: Desc)])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([voidedBy])
+  @@map("purchases")
+}
+
+/// One product on a purchase. purchase_date and status are copied from the
+/// purchase (kept equal in the same transaction) so the last valid purchase of
+/// a product is one index lookup.
+model PurchaseItem {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  purchaseId   String   @map("purchase_id") @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
+  quantity     Decimal  @db.Decimal(14, 3)
+  unitPrice    Decimal  @map("unit_price") @db.Decimal(14, 2)
+  /// round(quantity * unit_price, 2), half up (CHECK in the migration).
+  lineTotal    Decimal  @map("line_total") @db.Decimal(14, 2)
+  purchaseDate DateTime @map("purchase_date") @db.Date
+  status       String   @default("active") @db.VarChar(8)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  purchase Purchase @relation(fields: [businessId, purchaseId], references: [businessId, id], onDelete: Restrict)
+  product  Product  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([purchaseId, productId])
+  @@index([businessId, purchaseId])
+  @@index([businessId, productId, purchaseDate(sort: Desc), createdAt(sort: Desc)])
+  @@map("purchase_items")
+}
+
+/// Append-only stock ledger. quantity is signed; balance_after is the product's
+/// stock right after this movement (computed under the product row lock).
+model StockMovement {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
+  /// purchase, purchase_edit, purchase_void, adjustment (Step 5b adds delivery, delivery_void).
+  kind         String   @db.VarChar(16)
+  quantity     Decimal  @db.Decimal(14, 3)
+  balanceAfter Decimal  @map("balance_after") @db.Decimal(14, 3)
+  /// The business date it counts on: the purchase date, or the day of a void, edit or adjustment.
+  movementDate DateTime @map("movement_date") @db.Date
+  /// What caused it: "purchase" with the purchase id, or "adjustment" (no id).
+  sourceType   String   @map("source_type") @db.VarChar(16)
+  sourceId     String?  @map("source_id") @db.Uuid
+  reason       String?  @db.VarChar(500)
+  createdBy    String   @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product  Product  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  creator  User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  // A product's history, newest first.
+  @@index([businessId, productId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([businessId, movementDate])
+  @@index([businessId, sourceType, sourceId])
+  @@index([createdBy])
+  @@map("stock_movements")
+}
+
+/// Bags bought per month (by purchase date), for commission progress. Changed
+/// only by one atomic upsert in the purchase's transaction. Owner-only to read.
+model MonthlyPurchaseCounter {
+  businessId String   @map("business_id") @db.Uuid
+  /// YYYYMM, e.g. 202611.
+  period     Int
+  quantity   Decimal  @default(0) @db.Decimal(14, 3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@id([businessId, period])
+  @@map("monthly_purchase_counters")
 }

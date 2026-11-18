@@ -10,8 +10,31 @@ export interface DealershipUnit {
 export interface DealershipConfig {
   units: DealershipUnit[];
   defaultUnitKey: string;
-  codePrefixes: { product: string; customer: string; supplier: string };
+  codePrefixes: { product: string; customer: string; supplier: string; purchase: string };
   principalSupplier: { nameEn: string; nameBn: string } | null;
+  /** IANA time zone for business dates (purchase dates, months). */
+  timezone: string;
+  /** How many days back staff without purchase.edit may date a purchase. */
+  backdateLimitDays: number;
+  /** Per product, per user, per day: the most stock one may adjust without approval. */
+  stockAdjustmentLimit: number;
+}
+
+const DEFAULT_TIMEZONE = 'Asia/Dhaka';
+
+function validTimezone(zone: string): string {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return zone;
+  } catch {
+    return DEFAULT_TIMEZONE;
+  }
+}
+
+function wholeNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : fallback;
 }
 
 const FALLBACK_UNIT: DealershipUnit = { key: 'unit', nameEn: 'Unit', nameBn: 'একক', decimals: 0 };
@@ -77,9 +100,13 @@ export function parseDealershipConfig(raw: unknown): DealershipConfig {
       product: prefix(prefixes['product'], 'P'),
       customer: prefix(prefixes['customer'], 'C'),
       supplier: prefix(prefixes['supplier'], 'S'),
+      purchase: prefix(prefixes['purchase'], 'PUR'),
     },
     principalSupplier: principalName
       ? { nameEn: principalName, nameBn: text(principal['nameBn'], principalName) }
       : null,
+    timezone: validTimezone(text(config['timezone'], DEFAULT_TIMEZONE)),
+    backdateLimitDays: wholeNumber(config['backdateLimitDays'], 7, 0, 3660),
+    stockAdjustmentLimit: wholeNumber(config['stockAdjustmentLimit'], 10, 0, 1_000_000),
   };
 }

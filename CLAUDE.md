@@ -54,7 +54,7 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 ## ত্রুটির code (`src/core/errors`)
 
 - প্রতিটা ত্রুটি core-এর সাহায্যকারী দিয়ে: `badRequest` / `conflict` / `notFoundError` / `forbidden` / `unauthorized` (`code`, `message`, ঘরের হলে `field`)। Nest-এর exception সরাসরি নয়; স্থির code ছাড়া নতুন ত্রুটি নয়।
-- code `UPPER_SNAKE`, রূপ `<বিষয়>_<সমস্যা>` (যেমন `PHONE_DUPLICATE`, `CATEGORY_NOT_FOUND_OR_INACTIVE`, `STALE_REQUEST`)। সমস্যার শব্দ এই তালিকা থেকে: `REQUIRED`, `INVALID`, `TOO_SHORT`, `TOO_LONG`, `TOO_SMALL`, `TOO_LARGE`, `NOT_ALLOWED`, `DUPLICATE`, `NOT_FOUND`, `UNKNOWN`, `INACTIVE`, `FORBIDDEN`, `ALREADY_<অবস্থা>`, `EXISTS`, `UNSUPPORTED`। বিষয় ঘরের নাম হলে `camelCase` থেকে `UPPER_SNAKE` (`codeSubject`)।
+- code `UPPER_SNAKE`, রূপ `<বিষয়>_<সমস্যা>` (যেমন `PHONE_DUPLICATE`, `CATEGORY_NOT_FOUND_OR_INACTIVE`, `STALE_REQUEST`)। সমস্যার শব্দ এই তালিকা থেকে: `REQUIRED`, `INVALID`, `TOO_SHORT`, `TOO_LONG`, `TOO_SMALL`, `TOO_LARGE`, `TOO_OLD`, `IN_FUTURE`, `INSUFFICIENT`, `NOT_ALLOWED`, `DUPLICATE`, `NOT_FOUND`, `UNKNOWN`, `INACTIVE`, `FORBIDDEN`, `ALREADY_<অবস্থা>`, `EXISTS`, `UNSUPPORTED`। ঘরের বাইরের অতিরিক্ত তথ্য (যেমন উপলব্ধ স্টক) `details`-এ। বিষয় ঘরের নাম হলে `camelCase` থেকে `UPPER_SNAKE` (`codeSubject`)।
 - `field` = request-এর key (ভেতরের ঘর dot দিয়ে, header-এর নাম হুবহু)। একটা ঘরের ত্রুটিতেই শুধু `field`।
 - একবার প্রকাশ হওয়া code কখনো বদলানো, সরানো বা অন্য অর্থে ব্যবহার নয়; বার্তা বদলানো যায়।
 - code, field বা বার্তায় ব্যক্তিগত তথ্য (ফোন, ইমেইল), অন্য রেকর্ডের id/নাম বা অন্য ব্যবসার ইঙ্গিত নয়। অন্য ব্যবসার id আর না-থাকা id-তে একই code ও বার্তা।
@@ -71,6 +71,9 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 - কিছুই মোছা নয়, নিষ্ক্রিয়। আর্থিক প্রভাবের সংশোধন (দাম, বাকি, সীমা, নিষ্ক্রিয়) আলাদা অনুমতি ও `reason` চায় এবং audit-এ আগের/পরের মান লেখে; ডিফল্টে শুধু মালিক-স্তরের।
 - অন্য ব্যবসার id দিলে 404। প্রতিটা নতুন ব্যবসা-ডেটার টেবিলে বিচ্ছিন্নতার টেস্ট দাও।
 - ভবিষ্যতের প্রতিটা আর্থিক বা স্টকের রেকর্ডের module সংশোধন-অনুরোধ ব্যবস্থা (`src/core/approvals`) ব্যবহার করবে: সত্যিকারের মোছা নেই, বাতিল (void) হয় উল্টো এন্ট্রিতে (বাতিলের তারিখে, একই transaction-এ); module নিজের সংশোধনযোগ্য ফিল্ড, বাতিল ও `ChangeHandler` ঘোষণা করে `ChangeHandlerRegistry`-তে নিবন্ধন করবে; প্রতিটা বদলে রেকর্ডের `version` বাড়বে; সরাসরি সংশোধন বা বাতিলের অনুমতি ডিফল্টে মালিক-স্তরে সীমিত, স্টাফ অনুরোধ করবে।
+- স্টক বদলায় শুধু `StockLedger.apply(tx, ...)` দিয়ে, কাজের একই transaction-এ: পণ্যের সারি id-ক্রমে লক, শূন্যের নিচে নয় (409 `STOCK_INSUFFICIENT`), `stock_movements`-এ movement (`balance_after`-সহ) আর `current_stock` একসাথে। `stock_movements` শুধু-যোগ-হয় (trigger); মোছা শুধু টেস্টের cleanup-এ `SET LOCAL jesan.allow_purge = 'on'` দিয়ে, application কোডে কখনো নয়। নতুন movement-এর ধরন (যেমন 5b-র `delivery`, `delivery_void`) migration-এ CHECK তালিকায় যোগ করো।
+- মাস বা দিনভিত্তিক জমানো সংখ্যা (যেমন মাসিক কেনার কাউন্টার) `PeriodCounterService.add(tx, ...)` দিয়ে, একই transaction-এ; কখনো সব রেকর্ড যোগ করে নয়। ব্যবসার তারিখ (`YYYY-MM-DD`) সবসময় ব্যবসার সময়-অঞ্চলে (`src/core/common/business-time.ts`), সার্ভারের ঘড়িতে নয়।
+- তালিকায় relation-এর `_count` নয় (Prisma সব সারি group করে, ১ লাখে ~১০০ ms); পাতার id ধরে আলাদা `groupBy`।
 - পণ্যের `lastPurchasePrice` / `lastPurchasedAt` শুধু-পড়া: কেনা নিশ্চিত হলে একই transaction-এ (পণ্যের সারি লক করে) বসে; কেনা বাতিল বা সংশোধনে একই transaction-এ শেষ বৈধ কেনার লাইন থেকে পুনর্গণনা (না থাকলে `null`)। কোনো API বা handler এগুলো হাতে বসায় না; কেনার ভুল দাম ঠিক হয় `purchase.edit` অনুরোধে।
 
 ## পারফরম্যান্স চেকলিস্ট (প্রপোজাল সেকশন ৯.৬): প্রতিটা feature শেষে

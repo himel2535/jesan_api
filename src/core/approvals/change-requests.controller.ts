@@ -12,7 +12,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { AppRequest, AuthContext, BusinessAccess } from '../common/request-context';
-import { badRequest, ParseIdPipe } from '../errors';
+import { idempotencyKeyOf } from '../common/idempotency';
+import { ParseIdPipe } from '../errors';
 import { CurrentAccess, CurrentAuth } from '../permissions/current.decorators';
 import { AnyBusinessMember, RequirePermission } from '../permissions/decorators';
 import { Actor, ChangeRequestsService } from './change-requests.service';
@@ -24,8 +25,6 @@ import {
   MyListQueryDto,
   RejectDto,
 } from './dto';
-
-const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{8,64}$/;
 
 function actorOf(auth: AuthContext, request: AppRequest): Actor {
   return { userId: auth.userId, ip: request.ip };
@@ -46,14 +45,12 @@ export class ChangeRequestsController {
     @Req() request: AppRequest,
     @Res({ passthrough: true }) response: Response,
   ) {
-    if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY.test(idempotencyKey)) {
-      throw badRequest(
-        'IDEMPOTENCY_KEY_INVALID',
-        'Idempotency-Key must be 8-64 letters, digits, - or _',
-        'Idempotency-Key',
-      );
-    }
-    const result = await this.requests.create(access, body, actorOf(auth, request), idempotencyKey);
+    const result = await this.requests.create(
+      access,
+      body,
+      actorOf(auth, request),
+      idempotencyKeyOf(idempotencyKey),
+    );
     response.status(result.created ? 201 : 200);
     return result.request;
   }

@@ -8,6 +8,7 @@ import {
   ChangeContext,
   ChangeHandler,
   ChangeValues,
+  FieldRule,
   ImpactLine,
   LoadedRecord,
   ProposedChange,
@@ -55,13 +56,38 @@ function asValues(json: Prisma.JsonValue | null): ChangeValues {
   return json && typeof json === 'object' && !Array.isArray(json) ? (json as ChangeValues) : {};
 }
 
-function contextOf(access: BusinessAccess, actor: Actor): ChangeContext {
+function contextOf(
+  access: BusinessAccess,
+  actor: Actor,
+  fieldPrefix = 'proposedChange.',
+): ChangeContext {
   return {
     businessId: access.businessId,
     businessType: access.businessType,
     actorUserId: actor.userId,
     permissions: access.permissions,
+    fieldPrefix,
   };
+}
+
+/** A field's rule: listed, or named by pattern (`fieldRule`). */
+export function ruleOf(handler: ChangeHandler | undefined, key: string): FieldRule | undefined {
+  if (!handler) {
+    return undefined;
+  }
+  return Object.hasOwn(handler.fields, key) ? handler.fields[key] : handler.fieldRule?.(key);
+}
+
+/** A change made directly by someone allowed to, without a request. */
+export interface DirectChange {
+  entityType: string;
+  entityId: string;
+  kind: 'edit' | 'void';
+  /** For an edit: the fields to change (keys as in the handler). */
+  values?: ChangeValues;
+  reason: string;
+  /** The error when the record does not exist (default RECORD_NOT_FOUND). */
+  notFound?: () => Error;
 }
 
 function isUniqueViolation(error: unknown, hint: string): boolean {
@@ -282,7 +308,7 @@ export class ChangeRequestsService {
       }
       const proposed = asValues(request.proposedChange);
       // A field the handler no longer supports (e.g. removed from the record).
-      if (Object.keys(proposed).some((key) => !(key in handler.fields))) {
+      if (Object.keys(proposed).some((key) => !ruleOf(handler, key))) {
         throw conflict('CHANGE_FIELD_UNSUPPORTED', 'This change can no longer be applied');
       }
       this.requireDirectPermissions(handler, request.kind, Object.keys(proposed), access);
@@ -314,14 +340,15 @@ export class ChangeRequestsService {
       }
 
       let after: ChangeValues | null = null;
+      const applyCtx: ChangeContext = { ...ctx, reason: request.reason };
       if (request.kind === 'edit') {
         // Validated again against the record as it is now.
-        const values = handler.validateEdit(ctx, current, proposed);
-        await handler.applyEdit(tx, ctx, request.entityId, current, values);
+        const values = handler.validateEdit(applyCtx, current, proposed);
+        await handler.applyEdit(tx, applyCtx, request.entityId, current, values);
         after = values;
       } else {
-        await handler.validateVoid?.(tx, ctx, current);
-        await handler.applyVoid?.(tx, ctx, request.entityId, current, request.reason);
+        await handler.validateVoid?.(tx, applyCtx, current);
+        await handler.applyVoid?.(tx, applyCtx, request.entityId, current, request.reason);
       }
 
       const now = new Date();
@@ -434,6 +461,92 @@ export class ChangeRequestsService {
     return this.detail(access, id, actor);
   }
 
+  /**
+   * A change made directly, without a request, by someone allowed to make it
+   * (the owner level by default): the same handler, lock, version bump and
+   * audit as an approved request, in one transaction. A pending request for the
+   * record goes stale (its version no longer matches). Returns nothing: the
+   * module answers with the record itself.
+   */
+  async applyDirect(access: BusinessAccess, change: DirectChange, actor: Actor): Promise<void> {
+    const handler = this.registry.find(change.entityType, access.businessType);
+    if (!handler) {
+      throw new Error(`applyDirect: no change handler for ${change.entityType}`);
+    }
+    const ctx: ChangeContext = { ...contextOf(access, actor, ''), reason: change.reason };
+    const db = this.prisma.forBusiness(access.businessId);
+
+    await db.$transaction(async (tx) => {
+      const current = await handler.load(tx, ctx, change.entityId, { forUpdate: true });
+      if (!current) {
+        throw change.notFound?.() ?? notFoundError('RECORD_NOT_FOUND', 'Record not found');
+      }
+      if (change.kind === 'void') {
+        if (!handler.void || !handler.applyVoid) {
+          throw badRequest('VOID_NOT_SUPPORTED', 'This kind of record cannot be voided');
+        }
+        if (!access.permissions.has(handler.void.directPermission)) {
+          throw new ForbiddenException('Access denied');
+        }
+        await handler.validateVoid?.(tx, ctx, current);
+        await handler.applyVoid(tx, ctx, change.entityId, current, change.reason);
+        await this.audit.record(
+          {
+            businessId: access.businessId,
+            actorUserId: actor.userId,
+            action: `${handler.entityType}.voided`,
+            entityType: handler.entityType,
+            entityId: change.entityId,
+            changes: { reason: change.reason, before: current.values },
+            ip: actor.ip ?? null,
+          },
+          tx,
+        );
+        return;
+      }
+
+      const proposed = change.values ?? {};
+      for (const key of Object.keys(proposed)) {
+        const rule = ruleOf(handler, key);
+        if (!rule) {
+          throw badRequest('FIELD_NOT_CHANGEABLE', `Field "${key}" cannot be changed`, key);
+        }
+        if (
+          !access.permissions.has(rule.directPermission) ||
+          (rule.visibleWith && !access.permissions.has(rule.visibleWith))
+        ) {
+          throw new ForbiddenException('Access denied');
+        }
+      }
+      const values = handler.validateEdit(ctx, current, proposed);
+      const changed = Object.fromEntries(
+        Object.entries(values).filter(([key, value]) => current.values[key] !== value),
+      );
+      if (Object.keys(changed).length === 0) {
+        throw badRequest('NOTHING_TO_CHANGE', 'Nothing to change');
+      }
+      await handler.applyEdit(tx, ctx, change.entityId, current, changed);
+      await this.audit.record(
+        {
+          businessId: access.businessId,
+          actorUserId: actor.userId,
+          action: `${handler.entityType}.updated`,
+          entityType: handler.entityType,
+          entityId: change.entityId,
+          changes: {
+            reason: change.reason,
+            before: Object.fromEntries(
+              Object.keys(changed).map((key) => [key, current.values[key] ?? null]),
+            ),
+            after: changed,
+          },
+          ip: actor.ip ?? null,
+        },
+        tx,
+      );
+    });
+  }
+
   // ---------------------------------------------------------------------------
 
   private handlerFor(access: BusinessAccess, entityType: string): ChangeHandler {
@@ -497,7 +610,7 @@ export class ChangeRequestsService {
       );
     }
     for (const key of keys) {
-      const rule = handler.fields[key];
+      const rule = ruleOf(handler, key);
       if (!rule) {
         throw badRequest(
           'FIELD_NOT_CHANGEABLE',
@@ -530,7 +643,7 @@ export class ChangeRequestsService {
     const needed =
       kind === 'void'
         ? [handler.void?.directPermission ?? 'change.approve']
-        : fields.map((field) => handler.fields[field]?.directPermission ?? 'change.approve');
+        : fields.map((field) => ruleOf(handler, field)?.directPermission ?? 'change.approve');
     for (const permission of ['change.approve', ...needed]) {
       if (!access.permissions.has(permission)) {
         throw new ForbiddenException('Access denied');
@@ -688,7 +801,7 @@ export class ChangeRequestsService {
     const after = asValues(row.proposedChange);
     return Object.keys(after)
       .map((key) => {
-        const rule = handler?.fields[key];
+        const rule = ruleOf(handler, key);
         const label = rule?.label ?? key;
         if (!rule || (rule.visibleWith && !permissions.has(rule.visibleWith))) {
           return `${label} changed`;
@@ -705,7 +818,7 @@ export class ChangeRequestsService {
   ): ChangeValues {
     return Object.fromEntries(
       Object.entries(values).filter(([key]) => {
-        const rule = handler?.fields[key];
+        const rule = ruleOf(handler, key);
         return rule ? !rule.visibleWith || permissions.has(rule.visibleWith) : false;
       }),
     );

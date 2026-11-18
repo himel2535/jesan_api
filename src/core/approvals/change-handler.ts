@@ -12,6 +12,13 @@ export interface ChangeContext {
   actorUserId: string;
   /** The actor's permissions in this business. */
   permissions: ReadonlySet<string>;
+  /** The reason given for the change (set while applying). */
+  reason?: string;
+  /**
+   * Prefix for the `field` of errors about a proposed value: "proposedChange."
+   * for a change request, "" for a direct change (the value is a body key).
+   */
+  fieldPrefix: string;
 }
 
 export interface LoadedRecord {
@@ -67,6 +74,12 @@ export interface ChangeHandler {
   viewPermission: string;
   /** Fields a change request may edit. */
   fields: Readonly<Record<string, FieldRule>>;
+  /**
+   * Rules for fields named by pattern rather than listed in `fields`, e.g. the
+   * lines of a document (`items.<id>.quantity`). Returns undefined for keys
+   * that cannot be changed.
+   */
+  fieldRule?(key: string): FieldRule | undefined;
   /** Present when the record can be voided. */
   void?: { label: string; directPermission: string };
 

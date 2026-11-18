@@ -354,3 +354,85 @@ Passport নেওয়া হয়নি: গার্ড নিজে লে
 ### docs
 
 - `docs/API.md` অংশ ১০-এর শেষে PR #11-এ ভুল করে রয়ে যাওয়া পুরনো (বার্তা-ভিত্তিক) ত্রুটির সারিগুলো সরানো হলো; এখন শুধু code-ভিত্তিক টেবিল, অংশ ১১-র সঙ্গে মেলানো।
+
+## ২০২৬-১১-১৮: Akij থেকে কেনা, স্টক ও মাসিক কেনার কাউন্টার (Step 5a)
+
+প্ল্যান ও মালিকের সিদ্ধান্ত: `docs/plans/step-5a.md`।
+
+### টেবিল
+
+- `purchases`, `purchase_items`, `stock_movements`, `monthly_purchase_counters`; `products.current_stock`। কেনার লাইন, movement ও কেনা composite FK `(business_id, …)`-এ নিজের ব্যবসার পণ্য/কেনা/সরবরাহকারীতেই পড়ে (এ জন্য `products`, `suppliers`-এ `@@unique([businessId, id])` যোগ)।
+- `purchase_items`-এ কেনার `purchase_date` ও `status` নকল (একই transaction-এ মেলানো), যাতে "শেষ বৈধ কেনা" একটা index থেকে পড়া যায়: `(business_id, product_id, purchase_date DESC, created_at DESC)`। প্ল্যানে partial index (`WHERE status='active'`) ছিল; Prisma partial index ঘোষণা করে না, তাই পূর্ণ index (পণ্য দিয়ে কেনা-ফিল্টারেও কাজে লাগে), query-তে `status = 'active'`।
+- `stock_movements` শুধু-যোগ-হয়: trigger `UPDATE`/`DELETE` আটকায়; শুধু transaction-এর ভেতরে `SET LOCAL jesan.allow_purge = 'on'` থাকলে মোছা যায়, যা কেবল টেস্টের cleanup ব্যবহার করে। movement-এ চিহ্নসহ পরিমাণ, `balance_after` (লকের ভেতরে হিসাব), ব্যবসার তারিখ (`movement_date`), উৎস (`purchase` + id, বা `adjustment`)। সমন্বয়ের নিজের id দরকার নেই, তাই `adjustment`-এ `source_id` খালি (CHECK), প্ল্যানে ছিল "নিজের id"।
+- CHECK: স্টক `>= 0`, `balance_after >= 0`, `line_total = round(quantity * unit_price, 2)`, void-এর তিনটা ঘর একসাথে, `payment_method IN ('cash')`, সংশোধন/বাতিল/সমন্বয়ের movement-এ কারণ বাধ্যতামূলক।
+- config-এ নতুন (সব ঐচ্ছিক, পুরনো config চলে): `codePrefixes.purchase` (`PUR`), `timezone` (`Asia/Dhaka`), `backdateLimitDays` (৭), `stockAdjustmentLimit` (১০)।
+
+### হিসাবের নিয়ম
+
+- লাইন-মোট `Decimal.ROUND_HALF_UP`-এ দুই দশমিক; PostgreSQL-এর numeric `round()` অর্ধেককে শূন্য থেকে দূরে নেয়, অঋণাত্মকে যা half-up, তাই দুটো মেলে (টেস্ট: `0.005` → `0.01`, `0.1235` → `0.12`, `0.075` → `0.08`)।
+- মাস ধরা হয় কেনার তারিখ থেকে; তারিখ ব্যবসার সময়-অঞ্চলের ক্যালেন্ডার দিন (`src/core/common/business-time.ts`, Intl দিয়ে, নতুন প্যাকেজ নয়)। ৩০ নভেম্বর রাত ১১:৫৯ ও ১ ডিসেম্বর ০০:০০ Dhaka-র টেস্ট আছে।
+- কাউন্টার: বাতিল ও সংশোধনে **কেনার মাসে** কমে বা বাড়ে (মালিকের সিদ্ধান্ত ১); তারিখের মাস বদলালে পুরনো মাস থেকে নতুন মাসে। শুধু মোট বস্তা (সিদ্ধান্ত ২)।
+- কাউন্টার বাড়ানো একটা atomic upsert (`PeriodCounterService`)। কমানো সাধারণ `UPDATE`, কারণ PostgreSQL upsert-এর প্রস্তাবিত insert-সারিতে আগে CHECK চালায়, তাই ঋণাত্মক মানের upsert ব্যর্থ হয় (টেস্টে ধরা পড়েছিল)।
+- শেষ কেনা-দাম: প্রতিটা কেনা, বাতিল ও সংশোধনে প্রভাবিত পণ্যগুলোর জন্য শেষ বৈধ লাইন (কেনার তারিখ, তারপর লেখার সময়) থেকে আবার হিসাব; পুরনো তারিখের কেনা পরে লিখলে শেষ দাম বদলায় না। `lastPurchasedAt` = কেনার দিনের শুরু, Asia/Dhaka (সিদ্ধান্ত ৮)।
+- পেছনের তারিখ: ভবিষ্যৎ আটকানো; `purchase.edit` ছাড়া শুধু `backdateLimitDays` দিন (সিদ্ধান্ত ৪)।
+- সমন্বয়ের সীমা: প্রতি পণ্য, প্রতি ইউজার, প্রতিদিন (Dhaka) সমন্বয়ের পরম মানের যোগফল ≤ ১০, পণ্যের সারি লক করে গোনা, তাই সমান্তরাল অনুরোধেও এড়ানো যায় না (সিদ্ধান্ত ৫)। বেশি হলে 403 `ADJUSTMENT_APPROVAL_REQUIRED`, তারপর `product_stock` অনুরোধ (`adjustBy` চিহ্নসহ পরিমাণ, লক্ষ্য-সংখ্যা নয়, তাই কেনায় stale হয় না; handler-এর version তাই স্থির)। অনুমোদনে `stock.adjust.large`।
+
+### বাতিল ও সংশোধন (4b-র কাঠামোয়)
+
+- `purchase` handler (`PurchaseChangeHandler`, DI-সহ class) আর `product_stock` handler। core-এ ছোট সাধারণ সংযোজন:
+  - handler-এর `fieldRule(key)`: লাইনের ঘর (`items.<id>.quantity`) pattern দিয়ে।
+  - `ChangeContext.reason` আর `fieldPrefix`: অনুরোধে `proposedChange.`, সরাসরি পথে ফাঁকা।
+  - `ChangeRequestsService.applyDirect`: মালিক-স্তরের সরাসরি `PATCH`/`void` একই handler, লক, version, audit ও প্রতি-ঘরের সরাসরি-অনুমতিতে চলে।
+  - পুরনো handler বদলায়নি।
+- বাতিলে উল্টো movement বাতিলের দিনের তারিখে; স্টক কম থাকলে 409 `STOCK_INSUFFICIENT`, কিছুই বদলায় না। সংশোধনে শুধু পার্থক্য, `purchase_edit` movement সংশোধনের দিনের তারিখে।
+- লাইন যোগ বা বাদ, বা পণ্য বদল সংশোধনে নয় (সিদ্ধান্ত ৩); বাতিল + নতুন কেনা।
+- একটা bug নমুনা সংগ্রহের সময় ধরা পড়ে: বহু-লাইনের কেনায় এক লাইনের সংশোধনের preview অন্য লাইনকে শূন্য দেখাত (প্রয়োগ ঠিক ছিল)। ঠিক করা হয়েছে, দুই লাইনের টেস্ট যোগ হয়েছে।
+
+### লক ও সমান্তরাল কাজ
+
+- পণ্য সবসময় id-ক্রমে `FOR UPDATE` (`lockRows`, core-এ; raw SQL-এ নিজে `business_id`)। ক্রম: অনুরোধ, তারপর কেনা, তারপর পণ্য, তারপর কাউন্টার। সব পথে একই ক্রম, তাই deadlock হয় না।
+- টেস্ট: একই পণ্যে ১০টা সমান্তরাল কেনা (স্টক, নম্বর, কাউন্টার ঠিক), একই `Idempotency-Key`-এ দুটো সমান্তরাল অনুরোধ (একটা 201, একটা 200, একটাই কেনা)।
+
+### অনুমতি
+
+- নতুন: `purchase.edit`, `stock.adjust.large` (দুটোরই ডিফল্টে কোনো স্টাফ রোল নেই; owner-only নয়, যাতে ব্যবসা-স্তরের `owner` রোল অনুমোদন দিতে পারেন)। মোট ৪১টা।
+- owner-only শুধু `commission.view`-এর পেছনে মাসিক কাউন্টার ও preview-এর কাউন্টার-লাইন।
+- কেনা-দামের জন্য আলাদা অনুমতি নয়: `product.cost.view` (#12-র অর্থে)। কেনা তৈরিতেও লাগে, কারণ দাম লিখতে দাম দেখতে হয়।
+- ম্যানেজার কেনার বস্তা দেখেন, কাউন্টার ও কমিশনের অঙ্ক নয় (সিদ্ধান্ত ৭)।
+
+### ত্রুটির code
+
+- নতুন: `PURCHASE_NOT_FOUND`, `PRODUCT_DUPLICATE`, `PRODUCT_NOT_FOUND_OR_INACTIVE`, `QUANTITY_INVALID`, `UNIT_PRICE_INVALID`, `SUPPLIER_NOT_FOUND_OR_INACTIVE`, `PURCHASE_DATE_INVALID`, `PURCHASE_DATE_IN_FUTURE`, `PURCHASE_DATE_TOO_OLD`, `PURCHASE_ALREADY_VOID`, `STOCK_INSUFFICIENT`, `ADJUSTMENT_APPROVAL_REQUIRED`, `ADJUST_BY_INVALID`, `NOTE_INVALID`, `SUPPLIER_REFERENCE_INVALID`।
+- CLAUDE.md-র সমস্যা-শব্দের তালিকায় যোগ হয়েছে `TOO_OLD`, `IN_FUTURE`, `INSUFFICIENT`, আর `details` রাখার নিয়ম।
+- প্ল্যানের `ADJUSTMENT_NEEDS_APPROVAL` নাম বদলে `ADJUSTMENT_APPROVAL_REQUIRED` (তালিকার `REQUIRED` শব্দে)।
+- `Idempotency-Key`-এর যাচাই এখন core-এ (`idempotencyKeyOf`), change-requests ও কেনা দুটোই এটা ব্যবহার করে।
+
+### Step 5b ও লোকেশন
+
+- 5b-র অর্ডার, ডেলিভারি আর লোকেশন কীভাবে বসবে: `docs/plans/step-5a.md`-এর অংশ ৬–৭।
+- ডেলিভারির movement একই `StockLedger` দিয়ে যাবে। শুধু `kind`-এর CHECK তালিকা বাড়বে।
+
+### পারফরম্যান্স মাপ (ক্লাউড কন্টেইনার, PostgreSQL 16, `npm run db:seed:perf`)
+
+ডেটা: ৩০০ পণ্য, ১,০০,০০০ কেনা (২,০০,০০০ লাইন), ১০,০০,০০০ stock movement। চালু API-তে (HTTP, লগইন-সহ) প্রতিটা অনুরোধ ৩ বার গরম করে ৭ বার মাপা।
+
+| অনুরোধ | median | সর্বোচ্চ |
+|---|---|---|
+| কেনার তালিকা, পাতা ১ | 9.8 ms | 10.7 ms |
+| কেনার তালিকা, পাতা ৫০০০ (offset 49,990) | 17.4 ms | 24.8 ms |
+| কেনা, পণ্য দিয়ে ফিল্টার | 6.0 ms | 7.4 ms |
+| কেনা, সরবরাহকারী + এক মাস | 5.2 ms | 5.4 ms |
+| কেনার বিস্তারিত | 4.2 ms | 5.3 ms |
+| স্টকের তালিকা, পাতা ১ | 3.9 ms | 4.6 ms |
+| স্টক অনুসন্ধান | 5.5 ms | 5.9 ms |
+| পণ্যের ইতিহাস, পাতা ১ | 5.2 ms | 6.5 ms |
+| পণ্যের ইতিহাস, পাতা ৩০০ | 4.7 ms | 5.0 ms |
+| পণ্যের ইতিহাস, এক মাস | 5.0 ms | 7.9 ms |
+| মাসিক কাউন্টার | 2.4 ms | 2.7 ms |
+| কেনা সেভ | 31.2 ms | 46.3 ms |
+| কেনা বাতিল | 23.4 ms | 31.9 ms |
+
+- সবই লক্ষ্যের (পড়া ২০০ ms, সেভ ৫০০ ms, অনুসন্ধান ৩০০ ms) অনেক নিচে।
+- প্রথম মাপে কেনার তালিকার পাতা ১ ছিল ১৮৯ ms। কারণ: Prisma-র `_count` লাইনের সংখ্যা গুনতে ব্যবসার **সব** কেনার লাইন group করে, তারপর পাতা কাটে (একাই ~১০০ ms)। সমাধান: পাতার ১০টা id ধরে একটা `groupBy`। ফলে পাতা ১ নামল ১০ ms-এ। নিয়ম: তালিকায় relation-এর `_count` নয়।
+- `EXPLAIN (ANALYZE, BUFFERS)`: তালিকা `(business_id, purchase_date DESC, id DESC)` index থেকে সরাসরি পড়ে (০.১ ms)। ১ লাখ সারির `count(*)` ~১৬ ms, যা এখন তালিকার সময়ের বড় অংশ।
+- গভীর পাতা (offset) এখনো দ্রুত। কেনা কয়েক লাখ ছাড়ালে তালিকা keyset-এ নেওয়ার প্রস্তাব থাকল।

@@ -7,7 +7,16 @@ export const DEALERSHIP_TYPE = 'dealership';
  * Prisma models that hold business data. Queries on them must go through
  * PrismaService.forBusiness(businessId); unscoped queries are refused.
  */
-export const DEALERSHIP_TENANT_MODELS = ['ProductCategory', 'Product', 'Customer', 'Supplier'];
+export const DEALERSHIP_TENANT_MODELS = [
+  'ProductCategory',
+  'Product',
+  'Customer',
+  'Supplier',
+  'Purchase',
+  'PurchaseItem',
+  'StockMovement',
+  'MonthlyPurchaseCounter',
+];
 
 /**
  * Permissions of the dealership module (declarations only, no features yet).
@@ -34,9 +43,15 @@ export const DEALERSHIP_PERMISSIONS: PermissionGroup = {
     { key: 'supplier.view', defaultRoles: ['manager'] },
     { key: 'purchase.view', defaultRoles: ['manager'] },
     { key: 'purchase.create', defaultRoles: ['manager'] },
+    // Correcting (quantity, price, date) or voiding a purchase: owner level by
+    // default; staff send a change request.
+    { key: 'purchase.edit' },
     { key: 'purchase.void' },
     { key: 'stock.view', defaultRoles: ['manager', 'salesman'] },
+    // Adjusting stock up to the daily limit per product and user (settings).
     { key: 'stock.adjust', defaultRoles: ['manager'] },
+    // Beyond the limit, and approving larger adjustments: owner level by default.
+    { key: 'stock.adjust.large' },
     { key: 'sale.create', defaultRoles: ['manager', 'salesman'] },
     { key: 'sale.view.all', defaultRoles: ['manager'] },
     { key: 'sale.view.own', defaultRoles: ['salesman'] },

@@ -7,7 +7,7 @@ import { ChangeRequestsService } from './change-requests.service';
 @Module({
   controllers: [ChangeRequestsController],
   providers: [ChangeHandlerRegistry, ChangeRequestsService],
-  exports: [ChangeHandlerRegistry],
+  exports: [ChangeHandlerRegistry, ChangeRequestsService],
 })
 export class ApprovalsModule {
   constructor() {
