@@ -227,6 +227,9 @@ export class ProductsService {
         const updated = await tx.product.update({
           where: { id },
           data: {
+            // Every change bumps the version, so pending change requests go stale.
+            version: { increment: 1 },
+            updatedBy: actor.userId,
             categoryId: dto.categoryId,
             nameEn: dto.nameEn,
             nameBn: dto.nameBn,

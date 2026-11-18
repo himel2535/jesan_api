@@ -116,6 +116,9 @@ export class CategoriesService {
         const updated = await tx.productCategory.update({
           where: { id },
           data: {
+            // Every change bumps the version, so pending change requests go stale.
+            version: { increment: 1 },
+            updatedBy: actor.userId,
             nameEn: dto.nameEn,
             nameBn: dto.nameBn,
             sortOrder: dto.sortOrder,

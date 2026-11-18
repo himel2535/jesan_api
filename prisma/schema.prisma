@@ -36,6 +36,7 @@ model Business {
   products          Product[]
   customers         Customer[]
   suppliers         Supplier[]
+  changeRequests    ChangeRequest[]
 
   @@map("businesses")
 }
@@ -64,10 +65,16 @@ model User {
   sessions  Session[]
   auditLogs AuditLog[]
 
-  createdCategories ProductCategory[]
-  createdProducts   Product[]
-  createdCustomers  Customer[]
-  createdSuppliers  Supplier[]
+  createdCategories ProductCategory[] @relation("createdCategories")
+  createdProducts   Product[]         @relation("createdProducts")
+  createdCustomers  Customer[]        @relation("createdCustomers")
+  createdSuppliers  Supplier[]        @relation("createdSuppliers")
+  updatedCategories ProductCategory[] @relation("updatedCategories")
+  updatedProducts   Product[]         @relation("updatedProducts")
+  updatedCustomers  Customer[]        @relation("updatedCustomers")
+  updatedSuppliers  Supplier[]        @relation("updatedSuppliers")
+  requestedChanges  ChangeRequest[]   @relation("requestedChanges")
+  decidedChanges    ChangeRequest[]   @relation("decidedChanges")
 
   @@map("users")
 }
@@ -233,17 +240,22 @@ model ProductCategory {
   sortOrder  Int      @default(0) @map("sort_order")
   isActive   Boolean  @default(true) @map("is_active")
   createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  /// Bumped on every change; a change request is stale when it no longer matches.
+  version    Int      @default(1)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  creator  User?     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  creator  User?     @relation("createdCategories", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?     @relation("updatedCategories", fields: [updatedBy], references: [id], onDelete: Restrict)
   products Product[]
 
   // Target of the composite foreign key from products (same business only).
   @@unique([businessId, id])
   @@index([businessId, isActive, sortOrder])
   @@index([createdBy])
+  @@index([updatedBy])
   @@map("product_categories")
 }
 
@@ -263,18 +275,23 @@ model Product {
   defaultSalePrice Decimal  @map("default_sale_price") @db.Decimal(14, 2)
   isActive         Boolean  @default(true) @map("is_active")
   createdBy        String?  @map("created_by") @db.Uuid
+  updatedBy        String?  @map("updated_by") @db.Uuid
+  /// Bumped on every change; a change request is stale when it no longer matches.
+  version          Int      @default(1)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
   category ProductCategory @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  creator  User?           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  creator  User?           @relation("createdProducts", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?           @relation("updatedProducts", fields: [updatedBy], references: [id], onDelete: Restrict)
 
   @@unique([businessId, code])
   @@index([businessId, categoryId])
   // Matches the list order (name, then id) so pages are read straight from the index.
   @@index([businessId, isActive, nameEn, id])
   @@index([createdBy])
+  @@index([updatedBy])
   // Trigram indexes for "contains" search (pg_trgm, created in the migration).
   @@index([nameEn(ops: raw("gin_trgm_ops"))], map: "products_name_en_trgm_idx", type: Gin)
   @@index([nameBn(ops: raw("gin_trgm_ops"))], map: "products_name_bn_trgm_idx", type: Gin)
@@ -302,11 +319,15 @@ model Customer {
   creditLimit    Decimal? @map("credit_limit") @db.Decimal(14, 2)
   isActive       Boolean  @default(true) @map("is_active")
   createdBy      String?  @map("created_by") @db.Uuid
+  updatedBy      String?  @map("updated_by") @db.Uuid
+  /// Bumped on every change; a change request is stale when it no longer matches.
+  version        Int      @default(1)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  creator  User?    @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  creator  User?    @relation("createdCustomers", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?    @relation("updatedCustomers", fields: [updatedBy], references: [id], onDelete: Restrict)
 
   @@unique([businessId, code])
   @@unique([businessId, phone])
@@ -314,6 +335,7 @@ model Customer {
   @@index([businessId, isActive, nameEn, id])
   @@index([businessId, currentBalance])
   @@index([createdBy])
+  @@index([updatedBy])
   // Trigram indexes for "contains" search (pg_trgm, created in the migration).
   @@index([nameEn(ops: raw("gin_trgm_ops"))], map: "customers_name_en_trgm_idx", type: Gin)
   @@index([nameBn(ops: raw("gin_trgm_ops"))], map: "customers_name_bn_trgm_idx", type: Gin)
@@ -335,14 +357,65 @@ model Supplier {
   isPrincipal Boolean  @default(false) @map("is_principal")
   isActive    Boolean  @default(true) @map("is_active")
   createdBy   String?  @map("created_by") @db.Uuid
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  /// Bumped on every change; a change request is stale when it no longer matches.
+  version     Int      @default(1)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  creator  User?    @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  creator  User?    @relation("createdSuppliers", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?    @relation("updatedSuppliers", fields: [updatedBy], references: [id], onDelete: Restrict)
 
   @@unique([businessId, code])
   @@index([businessId, isActive, nameEn])
   @@index([createdBy])
+  @@index([updatedBy])
   @@map("suppliers")
+}
+
+/// A request to edit or void a record, decided by someone else (maker-checker).
+/// Business data: always used through PrismaService.forBusiness(businessId).
+/// One pending request per record (partial unique index in the migration).
+model ChangeRequest {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  /// Registered handler key, e.g. "product", later "sale".
+  entityType     String    @map("entity_type") @db.VarChar(48)
+  entityId       String    @map("entity_id") @db.Uuid
+  /// Short human label for lists, e.g. "P-0001 Sample OPC 50kg".
+  entityLabel    String    @map("entity_label") @db.VarChar(160)
+  /// "edit" or "void".
+  kind           String    @db.VarChar(8)
+  reason         String    @db.VarChar(500)
+  /// The record's version when requested; a different version means stale.
+  baseVersion    Int       @map("base_version")
+  /// Values of the affected fields when requested (only those fields).
+  snapshot       Json
+  /// The requested new values (edit only).
+  proposedChange Json?     @map("proposed_change")
+  /// "pending", "approved", "rejected", "cancelled" or "stale".
+  status         String    @default("pending") @db.VarChar(12)
+  requestedBy    String    @map("requested_by") @db.Uuid
+  decidedBy      String?   @map("decided_by") @db.Uuid
+  decisionNote   String?   @map("decision_note") @db.VarChar(500)
+  idempotencyKey String?   @map("idempotency_key") @db.VarChar(64)
+  requestedAt    DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
+  decidedAt      DateTime? @map("decided_at") @db.Timestamptz(3)
+  appliedAt      DateTime? @map("applied_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  requester User     @relation("requestedChanges", fields: [requestedBy], references: [id], onDelete: Restrict)
+  decider   User?    @relation("decidedChanges", fields: [decidedBy], references: [id], onDelete: Restrict)
+
+  // Approver inbox and the pending badge.
+  @@index([businessId, status, requestedAt])
+  // "My requests".
+  @@index([businessId, requestedBy, requestedAt])
+  // History of one record.
+  @@index([businessId, entityType, entityId])
+  @@index([requestedBy])
+  @@index([decidedBy])
+  @@map("change_requests")
 }
