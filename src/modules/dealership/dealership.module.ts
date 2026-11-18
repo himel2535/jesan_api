@@ -25,7 +25,10 @@ import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.p
 import { PurchaseChangeHandler } from './purchases/purchase-change-handler';
 import { PurchaseCountersController, PurchasesController } from './purchases/purchases.controller';
 import { PurchasesService } from './purchases/purchases.service';
+import { ProductStockChangeHandler } from './stock/product-stock-handler';
 import { StockLedger } from './stock/stock-ledger';
+import { StockController } from './stock/stock.controller';
+import { StockService } from './stock/stock.service';
 
 @Module({
   imports: [PermissionsModule, ApprovalsModule],
@@ -37,6 +40,7 @@ import { StockLedger } from './stock/stock-ledger';
     SuppliersController,
     PurchasesController,
     PurchaseCountersController,
+    StockController,
   ],
   providers: [
     DealershipContext,
@@ -47,6 +51,8 @@ import { StockLedger } from './stock/stock-ledger';
     StockLedger,
     PurchasesService,
     PurchaseChangeHandler,
+    StockService,
+    ProductStockChangeHandler,
   ],
 })
 export class DealershipModule {
@@ -54,6 +60,7 @@ export class DealershipModule {
     registry: PermissionRegistry,
     changeHandlers: ChangeHandlerRegistry,
     purchaseHandler: PurchaseChangeHandler,
+    stockHandler: ProductStockChangeHandler,
   ) {
     registry.register(DEALERSHIP_PERMISSIONS);
     registerTenantModels(DEALERSHIP_TENANT_MODELS);
@@ -63,5 +70,7 @@ export class DealershipModule {
     changeHandlers.register(categoryChangeHandler);
     // Purchases: void and correct through the same workflow (Step 5a).
     changeHandlers.register(purchaseHandler);
+    // Stock adjustments above the daily limit.
+    changeHandlers.register(stockHandler);
   }
 }
