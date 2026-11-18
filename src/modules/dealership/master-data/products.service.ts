@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import { AuditService } from '../../../core/audit/audit.service';
 import { moneyString, toDecimal } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
+import { badRequest } from '../../../core/errors';
 import { PrismaService } from '../../../core/database/prisma.service';
 import {
   DocumentCounterService,
@@ -31,7 +32,6 @@ const select = {
   nameBn: true,
   unitKey: true,
   purchasePrice: true,
-  defaultSalePrice: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -42,7 +42,16 @@ const select = {
 
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof select }>;
 
-const DUPLICATE = { name_en: 'A product with this name already exists' };
+const DUPLICATE = {
+  name_en: {
+    code: 'NAME_EN_DUPLICATE',
+    field: 'nameEn',
+    message: 'A product with this name already exists',
+  },
+};
+
+const categoryUnavailable = () =>
+  badRequest('CATEGORY_NOT_FOUND_OR_INACTIVE', 'Category not found or inactive', 'categoryId');
 
 function toResponse(row: ProductRow) {
   return {
@@ -53,7 +62,6 @@ function toResponse(row: ProductRow) {
     nameBn: row.nameBn,
     unitKey: row.unitKey,
     purchasePrice: moneyString(row.purchasePrice),
-    defaultSalePrice: moneyString(row.defaultSalePrice),
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -117,11 +125,11 @@ export class ProductsService {
       }),
     ]);
     if (!category?.isActive) {
-      throw new BadRequestException('Category not found or inactive');
+      throw categoryUnavailable();
     }
     const unitKey = dto.unitKey ?? config.defaultUnitKey;
     if (!config.units.some((unit) => unit.key === unitKey)) {
-      throw new BadRequestException(`Unknown unit: ${unitKey}`);
+      throw badRequest('UNIT_UNKNOWN', `Unknown unit: ${unitKey}`, 'unitKey');
     }
 
     try {
@@ -136,7 +144,6 @@ export class ProductsService {
             nameBn: dto.nameBn,
             unitKey,
             purchasePrice: toDecimal(dto.purchasePrice ?? '0'),
-            defaultSalePrice: toDecimal(dto.defaultSalePrice),
             createdBy: actor.userId,
           },
           select,
@@ -152,7 +159,6 @@ export class ProductsService {
               code: created.code,
               nameEn: created.nameEn,
               purchasePrice: moneyString(created.purchasePrice),
-              defaultSalePrice: moneyString(created.defaultSalePrice),
             },
             ip: actor.ip ?? null,
           },
@@ -167,7 +173,7 @@ export class ProductsService {
   }
 
   /**
-   * Plain fields (names, category, unit) need product.manage. Prices need
+   * Plain fields (names, category, unit) need product.manage. The purchase price needs
    * product.price.edit and (de)activation product.deactivate, both with a
    * reason; by default only the owner level holds them.
    */
@@ -186,19 +192,16 @@ export class ProductsService {
         nameBn: dto.nameBn,
         unitKey: dto.unitKey,
         purchasePrice: dto.purchasePrice && toDecimal(dto.purchasePrice).toFixed(2),
-        defaultSalePrice: dto.defaultSalePrice && toDecimal(dto.defaultSalePrice).toFixed(2),
         isActive: dto.isActive,
       },
     );
     if (Object.keys(changes).length === 0) {
-      throw new BadRequestException('Nothing to change');
+      throw badRequest('NOTHING_TO_CHANGE', 'Nothing to change');
     }
 
     let reason: string | undefined;
     if ('purchasePrice' in changes) {
       requirePermission(access, 'product.cost.view');
-    }
-    if ('purchasePrice' in changes || 'defaultSalePrice' in changes) {
       requirePermission(access, 'product.price.edit');
       reason = requireReason(dto.reason);
     }
@@ -212,13 +215,13 @@ export class ProductsService {
         select: { isActive: true },
       });
       if (!category?.isActive) {
-        throw new BadRequestException('Category not found or inactive');
+        throw categoryUnavailable();
       }
     }
     if ('unitKey' in changes) {
       const config = await this.context.config(access.businessId);
       if (!config.units.some((unit) => unit.key === dto.unitKey)) {
-        throw new BadRequestException(`Unknown unit: ${dto.unitKey ?? ''}`);
+        throw badRequest('UNIT_UNKNOWN', `Unknown unit: ${dto.unitKey ?? ''}`, 'unitKey');
       }
     }
 
@@ -236,8 +239,6 @@ export class ProductsService {
             unitKey: dto.unitKey,
             purchasePrice:
               dto.purchasePrice === undefined ? undefined : toDecimal(dto.purchasePrice),
-            defaultSalePrice:
-              dto.defaultSalePrice === undefined ? undefined : toDecimal(dto.defaultSalePrice),
             isActive: dto.isActive,
           },
           select,

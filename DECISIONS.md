@@ -310,3 +310,28 @@ Passport নেওয়া হয়নি: গার্ড নিজে লে
 
 - তালিকা ১০টা করে, `(business_id, status, requested_at)` ও `(business_id, requested_by, requested_at)` index-এ; `pending-count` একই index থেকে। তালিকায় snapshot বা preview নয়, শুধু বিস্তারিততে।
 - impact শুধু pending-এর বিস্তারিততে, এক transaction-এ handler-এর `load` + `preview` (মাস্টার ডেটায় এক-দুটো query)।
+
+## ২০২৬-১১-১৮: পণ্য থেকে বিক্রয়মূল্য সরানো ও ত্রুটির code
+
+### বিক্রয়মূল্য
+
+- পণ্যের `default_sale_price` সরানো হলো (নতুন migration; পুরনো migration অপরিবর্তিত), কারণ মালিক প্রতি গ্রাহকের কাছে আলাদা দামে বেচেন; দাম বসবে বিক্রির সময় ইনভয়েসে। পুরনো `products_prices_check` বাদ, নতুন `products_purchase_price_check` (`purchase_price >= 0`)।
+- কলামের মান মুছে গেছে (শুধু dev/নমুনা ডেটা, production নেই; মালিকের অনুমোদনে)। এই ঘরের অপেক্ষমাণ সংশোধন-অনুরোধ migration-এ `cancelled` (কারণ `decision_note`-এ); সিদ্ধান্ত হয়ে যাওয়া পুরনো অনুরোধ ইতিহাসে থাকে, সারাংশে "defaultSalePrice changed" (মান দেখায় না)।
+- handler-এ নেই এমন ঘরের অনুরোধ অনুমোদনে 409 `CHANGE_FIELD_UNSUPPORTED` (crash নয়)। `product.price.edit` এখন শুধু কেনা-দাম।
+
+### কেনা-দাম (মালিকের সিদ্ধান্ত, Step 5a-তে করা হবে; এই PR-এ বদল নেই)
+
+- বিকল্প গ: কেনার লাইনই আসল দাম। Step 5a-তে পণ্যের `purchasePrice` হবে শুধু-পড়া `lastPurchasePrice` ও `lastPurchasedAt`, যা কেনা নিশ্চিত হলে একই transaction-এ বসবে; পণ্য তৈরির সময় দাম নেওয়া হবে না, হাতে বদলানো যাবে না।
+- `product.price.edit` অনুমতি সরবে। কেনার ভুল দাম ঠিক হবে কেনার রেকর্ডের সংশোধনে (`purchase.edit`, সংশোধন-অনুরোধ দিয়ে)।
+- `product.cost.view`-এর অর্থ একই: কেনা-দাম যেখানেই থাকুক (পণ্যের শেষ দাম, কেনার লাইন, স্টকের মূল্য), দেখার অনুমতি।
+- লাভের হিসাব পণ্যের দাম থেকে নয়, কেনার লাইন থেকে (গড় বা FIFO খরচ); সেটা আলাদা সিদ্ধান্ত।
+- বাতিল বিকল্প: ক (হাতে বসানো দাম পণ্যে, কেনার আসল দামের সঙ্গে অমিল হয়), খ (পণ্য থেকে পুরো সরানো, শেষ দাম প্রতিবার query)।
+
+### ত্রুটির code
+
+- উত্তরের আকার শুধু যোগ: `statusCode`, `error`, `message` আগের মতো (validation-এর `message`-তালিকাও হুবহু, টেস্টে Nest-এর নিজের pipe-এর সঙ্গে মেলানো), সাথে সব ত্রুটিতে `code`, ঘরের ত্রুটিতে `field` আর `errors[]`। ফলে আগের frontend ভাঙে না।
+- নতুন প্যাকেজ নয়। `src/core/errors`: সাহায্যকারী (Nest-এর নিজের exception class ফেরত দেয়, তাই `instanceof` আগের মতো), `AppValidationPipe` (Nest-এর `flattenValidationErrors` দিয়েই `message`), আর global `AppExceptionFilter`, যা code-হীন ত্রুটিতে status থেকে সাধারণ code বসায় (guard, throttler, Nest-এর route 404)। অজানা ত্রুটিতে 500 `INTERNAL_ERROR`, ভেতরের কোনো বিবরণ নয়।
+- validation code স্বয়ংক্রিয়: `<ঘর>_<সমস্যা>`, constraint থেকে সমস্যা (`isNotEmpty` → `REQUIRED`, `maxLength` → `TOO_LONG`, অজানা → `INVALID`)। প্রতি ঘরে একটাই: `REQUIRED`, তারপর `INVALID`, তারপর বাকি (ধরন ভুল হলে দৈর্ঘ্যের বার্তা অর্থহীন)।
+- পাসওয়ার্ডের নিয়মের code `PASSWORD_*`, যে ঘরেই আসুক (`password` বা `newPassword`; `field` আলাদা)।
+- path-এর ভুল id: `ParseIdPipe`, code `ID_INVALID`।
+- 403 গুলো সাধারণ `ACCESS_DENIED` রাখা হলো (কোন অনুমতি নেই তা বলা হয় না)। লগইনের সব ব্যর্থতায় একই `INVALID_CREDENTIALS`।

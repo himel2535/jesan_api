@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { AuditService } from '../../../core/audit/audit.service';
 import { BusinessAccess } from '../../../core/common/request-context';
+import { badRequest } from '../../../core/errors';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/requests';
 import {
@@ -23,7 +24,13 @@ const select = {
   updatedAt: true,
 } as const;
 
-const DUPLICATE = { name_en: 'A category with this name already exists' };
+const DUPLICATE = {
+  name_en: {
+    code: 'NAME_EN_DUPLICATE',
+    field: 'nameEn',
+    message: 'A category with this name already exists',
+  },
+};
 
 type CategoryRow = {
   id: string;
@@ -103,7 +110,7 @@ export class CategoriesService {
       isActive: dto.isActive,
     });
     if (Object.keys(changes).length === 0) {
-      throw new BadRequestException('Nothing to change');
+      throw badRequest('NOTHING_TO_CHANGE', 'Nothing to change');
     }
     let reason: string | undefined;
     if ('isActive' in changes) {

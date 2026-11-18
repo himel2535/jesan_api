@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import { AuditService } from '../../../core/audit/audit.service';
 import { normalizePhone } from '../../../core/auth/identifier';
 import { moneyString, moneyStringOrNull, toDecimal } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
+import { badRequest } from '../../../core/errors';
 import { PrismaService } from '../../../core/database/prisma.service';
 import {
   DocumentCounterService,
@@ -43,7 +44,13 @@ const select = {
 
 type CustomerRow = Prisma.CustomerGetPayload<{ select: typeof select }>;
 
-const DUPLICATE = { phone: 'A customer with this phone number already exists' };
+const DUPLICATE = {
+  phone: {
+    code: 'PHONE_DUPLICATE',
+    field: 'phone',
+    message: 'A customer with this phone number already exists',
+  },
+};
 
 function toResponse(row: CustomerRow) {
   return {
@@ -59,7 +66,7 @@ function toResponse(row: CustomerRow) {
 function phoneOrThrow(value: string): string {
   const phone = normalizePhone(value);
   if (!phone) {
-    throw new BadRequestException('Phone number is not valid');
+    throw badRequest('PHONE_INVALID', 'Phone number is not valid', 'phone');
   }
   return phone;
 }
@@ -196,7 +203,7 @@ export class CustomersService {
       isActive: dto.isActive,
     });
     if (Object.keys(changes).length === 0) {
-      throw new BadRequestException('Nothing to change');
+      throw badRequest('NOTHING_TO_CHANGE', 'Nothing to change');
     }
 
     let reason: string | undefined;

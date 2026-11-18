@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { badRequest, unauthorized } from '../errors';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { AccessResolver, UserOverview } from '../permissions/access-resolver.service';
@@ -61,7 +62,7 @@ export class AuthService {
 
     if (!user) {
       await this.passwords.verifyDummy(password);
-      throw new UnauthorizedException(GENERIC_LOGIN_ERROR);
+      throw unauthorized('INVALID_CREDENTIALS', GENERIC_LOGIN_ERROR);
     }
 
     const now = new Date();
@@ -69,11 +70,11 @@ export class AuthService {
     const passwordOk = await this.passwords.verify(user.passwordHash, password);
 
     if (locked || !user.isActive) {
-      throw new UnauthorizedException(GENERIC_LOGIN_ERROR);
+      throw unauthorized('INVALID_CREDENTIALS', GENERIC_LOGIN_ERROR);
     }
     if (!passwordOk) {
       await this.recordFailedLogin(user.id, meta);
-      throw new UnauthorizedException(GENERIC_LOGIN_ERROR);
+      throw unauthorized('INVALID_CREDENTIALS', GENERIC_LOGIN_ERROR);
     }
 
     await db.user.update({
@@ -124,9 +125,13 @@ export class AuthService {
       throw new UnauthorizedException();
     }
     if (!(await this.passwords.verify(user.passwordHash, currentPassword))) {
-      throw new BadRequestException('Current password is incorrect');
+      throw badRequest(
+        'CURRENT_PASSWORD_INCORRECT',
+        'Current password is incorrect',
+        'currentPassword',
+      );
     }
-    this.passwords.assertAcceptable(newPassword, user);
+    this.passwords.assertAcceptable(newPassword, user, 'newPassword');
 
     await db.user.update({
       where: { id: userId },

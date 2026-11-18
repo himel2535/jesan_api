@@ -1,15 +1,6 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import type { AppRequest, AuthContext, BusinessAccess } from '../../../core/common/request-context';
+import { ParseIdPipe } from '../../../core/errors';
 import { CurrentAccess, CurrentAuth } from '../../../core/permissions/current.decorators';
 import { RequirePermission } from '../../../core/permissions/decorators';
 import { SerializeWith } from '../../../core/permissions/serialize/serialize.interceptor';
@@ -88,7 +79,7 @@ export class ProductCategoriesController {
   update(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Body() body: UpdateCategoryDto,
     @Req() request: AppRequest,
   ) {
@@ -110,7 +101,7 @@ export class ProductsController {
   @Get(':id')
   @RequirePermission('product.view')
   @SerializeWith(ProductResponse)
-  get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseUUIDPipe) id: string) {
+  get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseIdPipe) id: string) {
     return this.products.get(access, id);
   }
 
@@ -132,7 +123,7 @@ export class ProductsController {
   update(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Body() body: UpdateProductDto,
     @Req() request: AppRequest,
   ) {
@@ -154,7 +145,7 @@ export class CustomersController {
   @Get(':id')
   @RequirePermission('customer.view')
   @SerializeWith(CustomerResponse)
-  get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseUUIDPipe) id: string) {
+  get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseIdPipe) id: string) {
     return this.customers.get(access, id);
   }
 
@@ -176,7 +167,7 @@ export class CustomersController {
   update(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Body() body: UpdateCustomerDto,
     @Req() request: AppRequest,
   ) {
@@ -198,7 +189,7 @@ export class SuppliersController {
   @Get(':id')
   @RequirePermission('supplier.view')
   @SerializeWith(SupplierResponse)
-  get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseUUIDPipe) id: string) {
+  get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseIdPipe) id: string) {
     return this.suppliers.get(access, id);
   }
 }

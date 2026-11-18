@@ -12,7 +12,6 @@ interface ProductBody {
   code: string;
   nameEn: string;
   purchasePrice?: string;
-  defaultSalePrice: string;
   isActive: boolean;
   category: { id: string; nameEn: string };
 }
@@ -64,7 +63,6 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       nameEn: name,
       nameBn: `${name} বাংলা`,
       purchasePrice: '540.00',
-      defaultSalePrice: '560',
       ...overrides,
     });
     return response;
@@ -178,7 +176,7 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       expect(body.code).toMatch(/^P-\d{4}$/);
       expect(body.unitKey).toBe('bag');
       expect(body.purchasePrice).toBe('540.00');
-      expect(body.defaultSalePrice).toBe('560.00');
+      expect(body).not.toHaveProperty('defaultSalePrice');
       expect(body.category.nameEn).toBe('OPC');
     });
 
@@ -188,7 +186,7 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
         200,
       );
       expect(detail.body).not.toHaveProperty('purchasePrice');
-      expect((detail.body as ProductBody).defaultSalePrice).toBe('560.00');
+      expect((detail.body as ProductBody).nameEn).toBe('Hidden Cost');
       const list = await get(t.server, path('products?search=Hidden'), who('salesman')).expect(200);
       expect((list.body as PageBody<ProductBody>).items[0]).not.toHaveProperty('purchasePrice');
       const forManager = await get(t.server, path(`products/${created.id}`), who('manager')).expect(
@@ -198,9 +196,11 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
     });
 
     it('validates the input', async () => {
-      await createProduct('Bad Price', { defaultSalePrice: 560 }).expect(400); // money must be a string
-      await createProduct('Bad Price 2', { defaultSalePrice: '-5' }).expect(400);
-      await createProduct('Bad Price 3', { defaultSalePrice: '1.234' }).expect(400);
+      await createProduct('Bad Price', { purchasePrice: 560 }).expect(400); // money must be a string
+      await createProduct('Bad Price 2', { purchasePrice: '-5' }).expect(400);
+      await createProduct('Bad Price 3', { purchasePrice: '1.234' }).expect(400);
+      // Products have no sale price: it is set on each invoice.
+      await createProduct('Sale Price', { defaultSalePrice: '560' }).expect(400);
       await createProduct('Bad Unit', { unitKey: 'ton' }).expect(400);
       await createProduct('Other Category', { categoryId: otherCategoryId }).expect(400);
       await createProduct('sample opc 50KG').expect(409); // same name in another case
@@ -212,20 +212,15 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
         send(t.server, 'patch', path(`products/${product.id}`), who(who_), body);
 
       await patch('manager', { nameEn: 'Editable Renamed' }).expect(200);
-      await patch('manager', { defaultSalePrice: '565', reason: 'new rate' }).expect(403);
       await patch('manager', { purchasePrice: '545', reason: 'new rate' }).expect(403);
       await patch('manager', { isActive: false, reason: 'gone' }).expect(403);
-      await patch('ownerRole', { defaultSalePrice: '565' }).expect(400); // reason missing
+      await patch('ownerRole', { purchasePrice: '545' }).expect(400); // reason missing
       await patch('salesman', { nameEn: 'Nope' }).expect(403);
 
-      const priced = await patch('ownerRole', {
-        defaultSalePrice: '565.5',
-        reason: 'rate change from supplier',
-      }).expect(200);
-      expect((priced.body as ProductBody).defaultSalePrice).toBe('565.50');
-      await patch('owner', { purchasePrice: '545', reason: 'new cost' }).expect(200);
+      const priced = await patch('owner', { purchasePrice: '545', reason: 'new cost' }).expect(200);
+      expect((priced.body as ProductBody).purchasePrice).toBe('545.00');
       // Sending the same value again is not a change and needs no permission.
-      await patch('manager', { defaultSalePrice: '565.50', nameEn: 'Editable Again' }).expect(200);
+      await patch('manager', { purchasePrice: '545.00', nameEn: 'Editable Again' }).expect(200);
       await patch('manager', {}).expect(400);
 
       const audit = await t.prisma.client.auditLog.findFirstOrThrow({
@@ -460,7 +455,6 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
         categoryId: otherCategoryId,
         nameEn: 'Mine Only',
         nameBn: 'x',
-        defaultSalePrice: '1',
       }).expect(201);
       await send(t.server, 'post', path('customers', other.slug), who('otherManager'), {
         nameEn: 'Same Phone',
@@ -490,14 +484,12 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
         nameEn: 'Rod 10mm',
         nameBn: 'রড ১০ মিমি',
         purchasePrice: '90000',
-        defaultSalePrice: '95000',
       }).expect(201);
       expect(rod.body).toMatchObject({ code: 'R-0001', unitKey: 'ton' });
       await send(t.server, 'post', path('products', rods.slug), who('owner'), {
         categoryId: category,
         nameEn: 'Rod by bag',
         nameBn: 'x',
-        defaultSalePrice: '1',
         unitKey: 'bag',
       }).expect(400);
       const buyer = await send(t.server, 'post', path('customers', rods.slug), who('owner'), {

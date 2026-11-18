@@ -1,10 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { badRequest, conflict, forbidden, notFoundError } from '../errors';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { BusinessAccess } from '../common/request-context';
@@ -183,7 +178,10 @@ export class ChangeRequestsService {
         }
       }
       if (isUniqueViolation(error, 'one_pending') || isUniqueViolation(error, 'entity_id')) {
-        throw new ConflictException('This record already has a pending change request');
+        throw conflict(
+          'CHANGE_REQUEST_PENDING_EXISTS',
+          'This record already has a pending change request',
+        );
       }
       throw error;
     }
@@ -227,7 +225,7 @@ export class ChangeRequestsService {
     const db = this.prisma.forBusiness(access.businessId);
     const row = await db.changeRequest.findUnique({ where: { id }, select: detailSelect });
     if (!row || !this.canView(access, row, actor)) {
-      throw new NotFoundException('Change request not found');
+      throw notFoundError('CHANGE_REQUEST_NOT_FOUND', 'Change request not found');
     }
     const handler = this.registry.find(row.entityType, access.businessType);
     let impact: ImpactLine[] | null = null;
@@ -276,13 +274,20 @@ export class ChangeRequestsService {
     const outcome = await db.$transaction(async (tx) => {
       const request = await this.lockPending(tx, access, id);
       if (request.requestedBy === actor.userId) {
-        throw new ForbiddenException('You cannot decide your own change request');
+        throw forbidden('SELF_DECISION_FORBIDDEN', 'You cannot decide your own change request');
       }
       const handler = this.registry.find(request.entityType, access.businessType);
       if (!handler) {
-        throw new ConflictException('This kind of record can no longer be changed here');
+        throw conflict(
+          'ENTITY_TYPE_UNSUPPORTED',
+          'This kind of record can no longer be changed here',
+        );
       }
       const proposed = asValues(request.proposedChange);
+      // A field the handler no longer supports (e.g. removed from the record).
+      if (Object.keys(proposed).some((key) => !(key in handler.fields))) {
+        throw conflict('CHANGE_FIELD_UNSUPPORTED', 'This change can no longer be applied');
+      }
       this.requireDirectPermissions(handler, request.kind, Object.keys(proposed), access);
 
       const current = await handler.load(tx, ctx, request.entityId, { forUpdate: true });
@@ -370,7 +375,8 @@ export class ChangeRequestsService {
     });
 
     if (outcome.stale) {
-      throw new ConflictException(
+      throw conflict(
+        'STALE_REQUEST',
         'The record changed after this request was made; the request is now stale',
       );
     }
@@ -381,7 +387,7 @@ export class ChangeRequestsService {
     await this.prisma.forBusiness(access.businessId).$transaction(async (tx) => {
       const request = await this.lockPending(tx, access, id);
       if (request.requestedBy === actor.userId) {
-        throw new ForbiddenException('You cannot decide your own change request');
+        throw forbidden('SELF_DECISION_FORBIDDEN', 'You cannot decide your own change request');
       }
       await tx.changeRequest.update({
         where: { id },
@@ -413,7 +419,7 @@ export class ChangeRequestsService {
     await this.prisma.forBusiness(access.businessId).$transaction(async (tx) => {
       const request = await this.lockPending(tx, access, id, actor.userId);
       if (request.requestedBy !== actor.userId) {
-        throw new NotFoundException('Change request not found');
+        throw notFoundError('CHANGE_REQUEST_NOT_FOUND', 'Change request not found');
       }
       await tx.changeRequest.update({ where: { id }, data: { status: 'cancelled' } });
       await this.audit.record(
@@ -436,7 +442,7 @@ export class ChangeRequestsService {
   private handlerFor(access: BusinessAccess, entityType: string): ChangeHandler {
     const handler = this.registry.find(entityType, access.businessType);
     if (!handler) {
-      throw new BadRequestException(`Unknown record type: ${entityType}`);
+      throw badRequest('ENTITY_TYPE_UNKNOWN', `Unknown record type: ${entityType}`, 'entityType');
     }
     if (!access.permissions.has(handler.viewPermission)) {
       throw new ForbiddenException('Access denied');
@@ -453,7 +459,7 @@ export class ChangeRequestsService {
   ): Promise<LoadedRecord> {
     const current = await handler.load(tx, ctx, entityId, { forUpdate });
     if (!current) {
-      throw new NotFoundException('Record not found');
+      throw notFoundError('RECORD_NOT_FOUND', 'Record not found', 'entityId');
     }
     return current;
   }
@@ -468,12 +474,18 @@ export class ChangeRequestsService {
   ): ProposedChange {
     if (dto.kind === 'void') {
       if (!handler.void) {
-        throw new BadRequestException(
+        throw badRequest(
+          'VOID_NOT_SUPPORTED',
           'This kind of record cannot be voided; deactivate it instead',
+          'kind',
         );
       }
       if (dto.proposedChange !== undefined) {
-        throw new BadRequestException('A void request has no proposedChange');
+        throw badRequest(
+          'PROPOSED_CHANGE_NOT_ALLOWED',
+          'A void request has no proposedChange',
+          'proposedChange',
+        );
       }
       return { kind: 'void' };
     }
@@ -481,12 +493,20 @@ export class ChangeRequestsService {
     const proposed = dto.proposedChange ?? {};
     const keys = Object.keys(proposed);
     if (keys.length === 0) {
-      throw new BadRequestException('proposedChange must name at least one field');
+      throw badRequest(
+        'PROPOSED_CHANGE_EMPTY',
+        'proposedChange must name at least one field',
+        'proposedChange',
+      );
     }
     for (const key of keys) {
       const rule = handler.fields[key];
       if (!rule) {
-        throw new BadRequestException(`Field "${key}" cannot be changed by request`);
+        throw badRequest(
+          'FIELD_NOT_CHANGEABLE',
+          `Field "${key}" cannot be changed by request`,
+          `proposedChange.${key}`,
+        );
       }
       // Nobody may request (and so see) a value they are not allowed to see.
       if (rule.visibleWith && !access.permissions.has(rule.visibleWith)) {
@@ -498,7 +518,7 @@ export class ChangeRequestsService {
       Object.entries(values).filter(([key, value]) => current.values[key] !== value),
     );
     if (Object.keys(changed).length === 0) {
-      throw new BadRequestException('Nothing to change');
+      throw badRequest('NOTHING_TO_CHANGE', 'Nothing to change');
     }
     return { kind: 'edit', values: changed };
   }
@@ -554,10 +574,13 @@ export class ChangeRequestsService {
         ? request.requestedBy === ownerOnlyUserId
         : access.permissions.has('change.view.all') || access.permissions.has('change.approve'));
     if (!request || !visible) {
-      throw new NotFoundException('Change request not found');
+      throw notFoundError('CHANGE_REQUEST_NOT_FOUND', 'Change request not found');
     }
     if (request.status !== 'pending') {
-      throw new ConflictException(`This change request is already ${request.status}`);
+      throw conflict(
+        'CHANGE_REQUEST_ALREADY_DECIDED',
+        `This change request is already ${request.status}`,
+      );
     }
     return request;
   }

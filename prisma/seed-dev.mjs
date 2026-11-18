@@ -22,28 +22,24 @@ const products = [
     nameEn: 'Sample OPC 50kg',
     nameBn: 'নমুনা ওপিসি ৫০ কেজি',
     cost: '540.00',
-    sale: '560.00',
   },
   {
     category: 'OPC',
     nameEn: 'Sample OPC Premium 50kg',
     nameBn: 'নমুনা ওপিসি প্রিমিয়াম ৫০ কেজি',
     cost: '555.00',
-    sale: '575.00',
   },
   {
     category: 'PCC',
     nameEn: 'Sample PCC 50kg',
     nameBn: 'নমুনা পিসিসি ৫০ কেজি',
     cost: '520.00',
-    sale: '545.00',
   },
   {
     category: 'PCC',
     nameEn: 'Sample PCC Plus 50kg',
     nameBn: 'নমুনা পিসিসি প্লাস ৫০ কেজি',
     cost: '530.00',
-    sale: '550.00',
   },
 ];
 
@@ -123,8 +119,8 @@ try {
     const number = await nextNumber(client, businessId, 'product');
     await client.query(
       `INSERT INTO products (id, business_id, code, category_id, name_en, name_bn, unit_key,
-                             purchase_price, default_sale_price, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'bag', $7, $8, now())`,
+                             purchase_price, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'bag', $7, now())`,
       [
         uuidv7(),
         businessId,
@@ -133,7 +129,6 @@ try {
         product.nameEn,
         product.nameBn,
         product.cost,
-        product.sale,
       ],
     );
     created += 1;

@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
+import { badRequest, codeSubject } from '../../../core/errors';
 import {
   ChangeHandler,
   ChangeValues,
@@ -41,14 +41,22 @@ async function lockRow(
 function money(value: unknown, field: string, signed = false): string {
   const pattern = signed ? SIGNED_MONEY_PATTERN : MONEY_PATTERN;
   if (typeof value !== 'string' || !pattern.test(value)) {
-    throw new BadRequestException(`${field} must be an amount like "570.50" (as a string)`);
+    throw badRequest(
+      `${codeSubject(field)}_INVALID`,
+      `${field} must be an amount like "570.50" (as a string)`,
+      `proposedChange.${field}`,
+    );
   }
   return toDecimal(value).toFixed(2);
 }
 
 function flag(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') {
-    throw new BadRequestException(`${field} must be true or false`);
+    throw badRequest(
+      `${codeSubject(field)}_INVALID`,
+      `${field} must be true or false`,
+      `proposedChange.${field}`,
+    );
   }
   return value;
 }
@@ -78,7 +86,6 @@ const productFields = {
     directPermission: 'product.price.edit',
     visibleWith: 'product.cost.view',
   },
-  defaultSalePrice: { label: 'Default sale price', directPermission: 'product.price.edit' },
   isActive: { label: 'Active', directPermission: 'product.deactivate' },
 } as const;
 
@@ -99,7 +106,6 @@ export const productChangeHandler: ChangeHandler = {
         nameEn: true,
         version: true,
         purchasePrice: true,
-        defaultSalePrice: true,
         isActive: true,
       },
     });
@@ -109,7 +115,6 @@ export const productChangeHandler: ChangeHandler = {
           label: `${row.code} ${row.nameEn}`,
           values: {
             purchasePrice: moneyString(row.purchasePrice),
-            defaultSalePrice: moneyString(row.defaultSalePrice),
             isActive: row.isActive,
           },
         }
@@ -143,9 +148,6 @@ export const productChangeHandler: ChangeHandler = {
       data: {
         ...(typeof values['purchasePrice'] === 'string'
           ? { purchasePrice: toDecimal(values['purchasePrice']) }
-          : {}),
-        ...(typeof values['defaultSalePrice'] === 'string'
-          ? { defaultSalePrice: toDecimal(values['defaultSalePrice']) }
           : {}),
         ...(typeof values['isActive'] === 'boolean' ? { isActive: values['isActive'] } : {}),
         version: { increment: 1 },

@@ -44,7 +44,6 @@ describe.skipIf(!hasDatabase)('business data isolation in the Prisma client', ()
           nameBn: name,
           unitKey: 'bag',
           purchasePrice: '1',
-          defaultSalePrice: '2',
         },
       });
     }
@@ -130,7 +129,6 @@ describe.skipIf(!hasDatabase)('business data isolation in the Prisma client', ()
           nameBn: 'Cross',
           unitKey: 'bag',
           purchasePrice: '1',
-          defaultSalePrice: '1',
         },
       }),
     ).rejects.toThrow();

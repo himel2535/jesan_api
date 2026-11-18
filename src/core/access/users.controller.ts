@@ -5,7 +5,6 @@ import {
   Get,
   HttpCode,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -14,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { AppRequest, AuthContext, BusinessAccess } from '../common/request-context';
+import { ParseIdPipe } from '../errors';
 import { CurrentAccess, CurrentAuth } from '../permissions/current.decorators';
 import { RequirePermission } from '../permissions/decorators';
 import { AccessAdminService, ActorInfo } from './access-admin.service';
@@ -80,7 +80,7 @@ export class UsersController {
   grant(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('userId', ParseIdPipe) userId: string,
     @Body() body: RoleKeyDto,
     @Req() request: AppRequest,
   ) {
@@ -92,7 +92,7 @@ export class UsersController {
   changeRole(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('userId', ParseIdPipe) userId: string,
     @Body() body: RoleKeyDto,
     @Req() request: AppRequest,
   ) {
@@ -105,7 +105,7 @@ export class UsersController {
   removeAccess(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('userId', ParseIdPipe) userId: string,
     @Req() request: AppRequest,
   ) {
     return this.admin.removeAccess(access, userId, actorOf(auth, request));
@@ -117,7 +117,7 @@ export class UsersController {
   setStatus(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('userId', ParseIdPipe) userId: string,
     @Body() body: SetStatusDto,
     @Req() request: AppRequest,
   ) {
@@ -130,7 +130,7 @@ export class UsersController {
   resetPassword(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('userId', ParseIdPipe) userId: string,
     @Body() body: ResetPasswordDto,
     @Req() request: AppRequest,
   ) {
