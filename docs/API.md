@@ -154,8 +154,8 @@ Next.js-এর Server Component বা Route Handler থেকে ডাকল�
 | PATCH | `/b/:businessSlug/product-categories/:id` | হ্যাঁ | `product.manage` (+ নিষ্ক্রিয়ে `product.deactivate`) | 200 |
 | GET | `/b/:businessSlug/products?search=&categoryId=&active=&page=` | হ্যাঁ | `product.view` | 200 |
 | GET | `/b/:businessSlug/products/:id` | হ্যাঁ | `product.view` | 200 |
-| POST | `/b/:businessSlug/products` | হ্যাঁ | `product.manage` (+ কেনা-দামে `product.cost.view`) | 201 |
-| PATCH | `/b/:businessSlug/products/:id` | হ্যাঁ | `product.manage` (+ কেনা-দামে `product.price.edit`, নিষ্ক্রিয়ে `product.deactivate`) | 200 |
+| POST | `/b/:businessSlug/products` | হ্যাঁ | `product.manage` | 201 |
+| PATCH | `/b/:businessSlug/products/:id` | হ্যাঁ | `product.manage` (+ নিষ্ক্রিয়ে `product.deactivate`) | 200 |
 | GET | `/b/:businessSlug/customers?search=&active=&page=` | হ্যাঁ | `customer.view` | 200 |
 | GET | `/b/:businessSlug/customers/:id` | হ্যাঁ | `customer.view` | 200 |
 | POST | `/b/:businessSlug/customers` | হ্যাঁ | `customer.manage` (+ বাকি/সীমায় `customer.due.view`) | 201 |
@@ -304,7 +304,6 @@ Response: **204**, body নেই।
         "product.cost.view",
         "product.deactivate",
         "product.manage",
-        "product.price.edit",
         "product.view",
         "profit.view",
         "purchase.create",
@@ -412,7 +411,7 @@ Response: **204**, body নেই।
 - `roles`: চারটা রোল, Settings-এর কলামের ক্রমে। প্রতিটায় চালু অনুমতির তালিকা।
 - `locked: true` (শুধু `owner` রোলে): এই রোলের অনুমতি বদলানো যায় না; সবসময় সব owner-only-বহির্ভূত অনুমতি।
 
-Response 200 (`permissions` সংক্ষিপ্ত; আসলে ৪০টা, অংশ ১২-এর টেবিলে সব):
+Response 200 (`permissions` সংক্ষিপ্ত; আসলে ৩৯টা, অংশ ১২-এর টেবিলে সব):
 
 ```json
 {
@@ -634,9 +633,9 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 - **অনুসন্ধান:** অংশ মিললেই হয়, বড়-ছোট হাতের অক্ষর ধরা হয় না। পণ্য: ইংরেজি নাম, বাংলা নাম, কোড। গ্রাহক: ইংরেজি নাম, বাংলা নাম, ফোন, কোড। ফোন `01712...` লিখলেও `+8801712...`-তে মেলে।
 - **সাজানো:** ইংরেজি নাম অনুযায়ী (ক্যাটাগরি `sortOrder` অনুযায়ী; সরবরাহকারীতে প্রিন্সিপাল আগে)।
 - **কোড:** স্বয়ংক্রিয়, বদলানো যায় না: পণ্য `P-0001`, গ্রাহক `C-00001`, সরবরাহকারী `S-001` (prefix ব্যবসার settings থেকে, যেমন অন্য ব্যবসায় `R-0001`)। একসাথে অনেক তৈরি হলেও কখনো ডুপ্লিকেট হয় না।
-- **সংবেদনশীল সংশোধন:** তৈরির পরে দাম, শুরুর বাকি, ক্রেডিট সীমা বদলানো আর নিষ্ক্রিয়/সক্রিয় করা শুধু মালিক-স্তরের (platform owner ও `owner` রোল; অনুমতি `product.price.edit`, `product.deactivate`, `customer.balance.edit`, `customer.deactivate`)। এতে body-তে `reason` (৩-৫০০ অক্ষর) বাধ্যতামূলক, আর audit log-এ আগের ও পরের মান লেখা হয়। নাম, ঠিকানা, ফোন, ক্যাটাগরির বদল `product.manage` / `customer.manage` দিয়েই চলে। ম্যানেজার সংবেদনশীল বদলের জন্য পরের ধাপে "সংশোধনের অনুরোধ" পাঠাবেন।
+- **সংবেদনশীল সংশোধন:** তৈরির পরে শুরুর বাকি, ক্রেডিট সীমা বদলানো আর নিষ্ক্রিয়/সক্রিয় করা শুধু মালিক-স্তরের (platform owner ও `owner` রোল; অনুমতি `product.deactivate`, `customer.balance.edit`, `customer.deactivate`)। পণ্যে কোনো দাম হাতে বসানো বা বদলানো যায় না। এতে body-তে `reason` (৩-৫০০ অক্ষর) বাধ্যতামূলক, আর audit log-এ আগের ও পরের মান লেখা হয়। নাম, ঠিকানা, ফোন, ক্যাটাগরির বদল `product.manage` / `customer.manage` দিয়েই চলে। ম্যানেজার সংবেদনশীল বদলের জন্য "সংশোধনের অনুরোধ" পাঠান (অংশ ১০)।
 - **PATCH:** শুধু যা বদলাবেন সেটা পাঠান। আগের মানের সমান মান পাঠালে সেটা বদল ধরা হয় না (অনুমতিও লাগে না)। কিছুই না বদলালে 400 `Nothing to change`।
-- **লুকানো ফিল্ড:** কেনা-দাম (`purchasePrice`) `product.cost.view` ছাড়া, আর গ্রাহকের `openingBalance`, `currentBalance`, `creditLimit` `customer.due.view` ছাড়া response-এ থাকেই না। অনুমতি ছাড়া এগুলো পাঠালে 403।
+- **লুকানো ফিল্ড:** শেষ কেনা-দাম ও তারিখ (`lastPurchasePrice`, `lastPurchasedAt`) `product.cost.view` ছাড়া, আর গ্রাহকের `openingBalance`, `currentBalance`, `creditLimit` `customer.due.view` ছাড়া response-এ থাকেই না। অনুমতি ছাড়া এগুলো পাঠালে 403।
 
 ### `GET product-units`
 
@@ -693,7 +692,8 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
       "nameEn": "Sample OPC 50kg",
       "nameBn": "নমুনা ওপিসি ৫০ কেজি",
       "unitKey": "bag",
-      "purchasePrice": "540.00",
+      "lastPurchasePrice": null,
+      "lastPurchasedAt": null,
       "isActive": true,
       "createdAt": "2026-11-17T08:38:04.236Z",
       "updatedAt": "2026-11-17T08:38:04.236Z"
@@ -705,27 +705,28 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 }
 ```
 
-বিক্রয়কর্মীর উত্তর একই, শুধু `purchasePrice` ফিল্ডটা **নেই**। `GET products/:id` একটা পণ্য, একই রূপে।
+বিক্রয়কর্মীর উত্তর একই, শুধু `lastPurchasePrice` আর `lastPurchasedAt` ফিল্ড দুটো **নেই**। `GET products/:id` একটা পণ্য, একই রূপে।
 
-`POST products` (`unitKey` না দিলে ব্যবসার প্রধান একক; `purchasePrice` না দিলে `"0"` এবং দিতে হলে `product.cost.view` লাগে):
+**শেষ কেনা-দাম শুধু-পড়া।** `lastPurchasePrice` (টাকার স্ট্রিং) আর `lastPurchasedAt` (ISO সময়) হলো শেষ বৈধ কেনার দাম ও সময়। কেনা নিশ্চিত হলে একই transaction-এ বসে; কেনা বাতিল বা সংশোধন হলে শেষ বৈধ কেনা থেকে আবার হিসাব হয় (কেনা আসবে Step 5a-তে)। কোনো কেনা না হলে দুটোই `null`; দুটো সবসময় একসাথে থাকে বা একসাথে `null`। তৈরি বা সম্পাদনায় কেনা-দাম নেওয়া হয় না: `purchasePrice` পাঠালে 400 `PURCHASE_PRICE_NOT_ALLOWED`, `lastPurchasePrice` পাঠালে 400 `LAST_PURCHASE_PRICE_NOT_ALLOWED`। কেনার ভুল দাম ঠিক হবে কেনার রেকর্ডের সংশোধনে (`purchase.edit`, অংশ ১০-এর অনুরোধ)।
+
+`POST products` (`unitKey` না দিলে ব্যবসার প্রধান একক):
 
 ```json
 {
   "categoryId": "01a1e8a7-f6d0-7858-ba94-86452eb3eb44",
   "nameEn": "Sample OPC 40kg",
-  "nameBn": "নমুনা ওপিসি ৪০ কেজি",
-  "purchasePrice": "450"
+  "nameBn": "নমুনা ওপিসি ৪০ কেজি"
 }
 ```
 
-→ 201, তৈরি হওয়া পণ্য (`"code": "P-0005"`, `"purchasePrice": "450.00"`)।
+→ 201, তৈরি হওয়া পণ্য (`"code": "P-0005"`, `"lastPurchasePrice": null`)।
 
 **পণ্যে বিক্রয়মূল্য নেই।** মালিক প্রতি গ্রাহকের কাছে আলাদা দামে বেচেন; দাম বসবে বিক্রির সময় ইনভয়েসে (Step 5)। `defaultSalePrice` পাঠালে 400 (অচেনা ফিল্ড), আর উত্তরেও এই ফিল্ড আসে না।
 
-`PATCH products/:id`: `nameEn`, `nameBn`, `categoryId`, `unitKey` (`product.manage`); `purchasePrice` (`product.cost.view` + `product.price.edit` + `reason`); `isActive` (`product.deactivate` + `reason`)। উদাহরণ (মালিক):
+`PATCH products/:id`: `nameEn`, `nameBn`, `categoryId`, `unitKey` (`product.manage`); `isActive` (`product.deactivate` + `reason`)। উদাহরণ (মালিক):
 
 ```json
-{ "purchasePrice": "545", "reason": "new rate from Akij" }
+{ "isActive": false, "reason": "Akij stopped this product" }
 ```
 
 ত্রুটি: একই নাম 409 `NAME_EN_DUPLICATE` (`nameEn`); অজানা বা নিষ্ক্রিয় ক্যাটাগরি 400 `CATEGORY_NOT_FOUND_OR_INACTIVE` (`categoryId`); settings-এ নেই এমন একক 400 `UNIT_UNKNOWN` (`unitKey`); টাকা সংখ্যা হিসেবে পাঠালে 400 `PURCHASE_PRICE_INVALID`; কারণ ছাড়া দাম বা অবস্থা বদলে 400 `REASON_REQUIRED` (`reason`)।
@@ -828,14 +829,13 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 - **`stale`**: অনুরোধের পরে রেকর্ডটা অন্যভাবে বদলেছে (যেমন মালিক সরাসরি বদলেছেন)। অনুমোদনের চেষ্টায় অনুরোধ `stale` হয়ে যায় আর 409 আসে; দরকার হলে নতুন অনুরোধ করুন।
 - একটা রেকর্ডে একসাথে একটাই `pending` অনুরোধ (দ্বিতীয়টায় 409)।
 - **নিজের অনুরোধ নিজে অনুমোদন বা প্রত্যাখ্যান করা যায় না**, মালিক হলেও (403)।
-- অনুমোদনকারী শুধু `change.approve` দিয়ে হয় না: যে বদল তিনি নিজে সরাসরি করতে পারেন না (যেমন `product.price.edit` নেই), তা অনুমোদনও করতে পারেন না (403)।
+- অনুমোদনকারী শুধু `change.approve` দিয়ে হয় না: যে বদল তিনি নিজে সরাসরি করতে পারেন না (যেমন `customer.balance.edit` নেই), তা অনুমোদনও করতে পারেন না (403)।
 - অনুমোদনকারী প্রস্তাবিত মান বদলাতে পারেন না। অন্য মান চাইলে প্রত্যাখ্যান (নোটসহ) করে নিজে সরাসরি বদলান।
 
 ### কোন ফিল্ড অনুরোধে বদলানো যায়
 
 | `entityType` | ফিল্ড | দেখতে লাগে | অনুমোদনে (সরাসরি) লাগে |
 |---|---|---|---|
-| `product` | `purchasePrice` | `product.cost.view` | `product.price.edit` |
 | `product` | `isActive` | - | `product.deactivate` |
 | `customer` | `openingBalance`, `creditLimit` | `customer.due.view` | `customer.balance.edit` |
 | `customer` | `isActive` | - | `customer.deactivate` |
@@ -1187,8 +1187,7 @@ Retry-After: 60
 | `change.approve` | core | | | | | অনুরোধ অনুমোদন ও প্রত্যাখ্যান (+ সংশ্লিষ্ট সরাসরি-অনুমতি) |
 | `product.view` | dealership | | ✓ | | ✓ | পণ্য ও category দেখা |
 | `product.manage` | dealership | | ✓ | | | পণ্য ও category বানানো, বদলানো |
-| `product.cost.view` | dealership | | ✓ | | | কেনা-দাম দেখা |
-| `product.price.edit` | dealership | | | | | তৈরির পরে কেনা-দাম বদল (কারণসহ) |
+| `product.cost.view` | dealership | | ✓ | | | কেনা-দাম দেখা, যেখানেই থাকুক (পণ্যের শেষ কেনা-দাম, পরে কেনার লাইন ও স্টকের মূল্য) |
 | `product.deactivate` | dealership | | | | | পণ্য ও ক্যাটাগরি নিষ্ক্রিয়/সক্রিয় (কারণসহ) |
 | `customer.view` | dealership | | ✓ | ✓ | ✓ | গ্রাহকের তালিকা |
 | `customer.manage` | dealership | | ✓ | | ✓ | গ্রাহক যোগ ও বদল |
@@ -1218,7 +1217,7 @@ Retry-After: 60
 
 `dealership` module-এর অনুমতি শুধু `type: "dealership"` ব্যবসায় প্রযোজ্য; ভবিষ্যতের অন্য ধরনের ব্যবসা (যেমন manufacturing) নিজের অনুমতি আনবে। এখন পর্যন্ত মাস্টার ডেটা (পণ্য, গ্রাহক, সরবরাহকারী) তৈরি হয়েছে; কেনা, বিক্রি, স্টক, খাতা ও কমিশনের অনুমতি আগে থেকে ঘোষণা করা আছে, যাতে Settings-এর ছক এখনই তৈরি করা যায়।
 
-তৈরির পরে দাম, বাকি বা সীমা বদল আর নিষ্ক্রিয় করার চারটা অনুমতি, আর `change.view.all` ও `change.approve`, কোনো স্টাফ রোলের ডিফল্টে নেই; ব্যবসা-স্তরের `owner` রোল ও platform owner এগুলো পান (owner-only নয়, তাই মালিক চাইলে কাউকে দিতে পারেন)। স্টাফ এসব বদল অনুরোধের মাধ্যমে করেন (অংশ ১০)।
+তৈরির পরে বাকি বা সীমা বদল আর নিষ্ক্রিয় করার তিনটা অনুমতি (`customer.balance.edit`, `product.deactivate`, `customer.deactivate`), আর `change.view.all` ও `change.approve`, কোনো স্টাফ রোলের ডিফল্টে নেই; ব্যবসা-স্তরের `owner` রোল ও platform owner এগুলো পান (owner-only নয়, তাই মালিক চাইলে কাউকে দিতে পারেন)। স্টাফ এসব বদল অনুরোধের মাধ্যমে করেন (অংশ ১০)।
 
 ### frontend-এ কীভাবে ব্যবহার করবেন
 

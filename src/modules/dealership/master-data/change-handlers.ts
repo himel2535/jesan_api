@@ -80,12 +80,8 @@ const INACTIVE_NOTE = 'While inactive it cannot be chosen for new entries; exist
 
 // ---------------------------------------------------------------------------
 
+// Products carry no editable price (the last purchase price is set by purchases).
 const productFields = {
-  purchasePrice: {
-    label: 'Purchase price',
-    directPermission: 'product.price.edit',
-    visibleWith: 'product.cost.view',
-  },
   isActive: { label: 'Active', directPermission: 'product.deactivate' },
 } as const;
 
@@ -105,7 +101,6 @@ export const productChangeHandler: ChangeHandler = {
         code: true,
         nameEn: true,
         version: true,
-        purchasePrice: true,
         isActive: true,
       },
     });
@@ -113,10 +108,7 @@ export const productChangeHandler: ChangeHandler = {
       ? {
           version: row.version,
           label: `${row.code} ${row.nameEn}`,
-          values: {
-            purchasePrice: moneyString(row.purchasePrice),
-            isActive: row.isActive,
-          },
+          values: { isActive: row.isActive },
         }
       : null;
   },
@@ -124,7 +116,7 @@ export const productChangeHandler: ChangeHandler = {
   validateEdit(_ctx, _current, proposed) {
     const values: ChangeValues = {};
     for (const [key, value] of Object.entries(proposed)) {
-      values[key] = key === 'isActive' ? flag(value, key) : money(value, key);
+      values[key] = flag(value, key);
     }
     return values;
   },
@@ -146,9 +138,6 @@ export const productChangeHandler: ChangeHandler = {
     await tx.product.update({
       where: { id },
       data: {
-        ...(typeof values['purchasePrice'] === 'string'
-          ? { purchasePrice: toDecimal(values['purchasePrice']) }
-          : {}),
         ...(typeof values['isActive'] === 'boolean' ? { isActive: values['isActive'] } : {}),
         version: { increment: 1 },
         updatedBy: ctx.actorUserId,

@@ -260,24 +260,27 @@ model ProductCategory {
 }
 
 model Product {
-  id               String   @id @default(uuid(7)) @db.Uuid
-  businessId       String   @map("business_id") @db.Uuid
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
   /// Generated from document_counters, e.g. P-0001. Never changes.
-  code             String   @db.VarChar(32)
-  categoryId       String   @map("category_id") @db.Uuid
-  nameEn           String   @map("name_en") @db.VarChar(120)
-  nameBn           String   @map("name_bn") @db.VarChar(120)
+  code              String    @db.VarChar(32)
+  categoryId        String    @map("category_id") @db.Uuid
+  nameEn            String    @map("name_en") @db.VarChar(120)
+  nameBn            String    @map("name_bn") @db.VarChar(120)
   /// One of the unit keys in the business config (Akij: "bag").
-  unitKey          String   @map("unit_key") @db.VarChar(16)
-  /// Current cost price. Hidden without product.cost.view.
-  purchasePrice    Decimal  @map("purchase_price") @db.Decimal(14, 2)
-  isActive         Boolean  @default(true) @map("is_active")
-  createdBy        String?  @map("created_by") @db.Uuid
-  updatedBy        String?  @map("updated_by") @db.Uuid
+  unitKey           String    @map("unit_key") @db.VarChar(16)
+  /// Rate of the latest valid purchase; read-only, set by purchases in the
+  /// same transaction (Step 5a). Null until the first purchase. Hidden
+  /// without product.cost.view.
+  lastPurchasePrice Decimal?  @map("last_purchase_price") @db.Decimal(14, 2)
+  lastPurchasedAt   DateTime? @map("last_purchased_at") @db.Timestamptz(3)
+  isActive          Boolean   @default(true) @map("is_active")
+  createdBy         String?   @map("created_by") @db.Uuid
+  updatedBy         String?   @map("updated_by") @db.Uuid
   /// Bumped on every change; a change request is stale when it no longer matches.
-  version          Int      @default(1)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
   category ProductCategory @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)

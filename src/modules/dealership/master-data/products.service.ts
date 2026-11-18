@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import { AuditService } from '../../../core/audit/audit.service';
-import { moneyString, toDecimal } from '../../../core/common/money';
+import { moneyString } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
 import { badRequest } from '../../../core/errors';
 import { PrismaService } from '../../../core/database/prisma.service';
@@ -31,7 +31,8 @@ const select = {
   nameEn: true,
   nameBn: true,
   unitKey: true,
-  purchasePrice: true,
+  lastPurchasePrice: true,
+  lastPurchasedAt: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -61,7 +62,8 @@ function toResponse(row: ProductRow) {
     nameEn: row.nameEn,
     nameBn: row.nameBn,
     unitKey: row.unitKey,
-    purchasePrice: moneyString(row.purchasePrice),
+    lastPurchasePrice: row.lastPurchasePrice ? moneyString(row.lastPurchasePrice) : null,
+    lastPurchasedAt: row.lastPurchasedAt?.toISOString() ?? null,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -113,9 +115,6 @@ export class ProductsService {
   }
 
   async create(access: BusinessAccess, dto: CreateProductDto, actor: Actor) {
-    if (dto.purchasePrice !== undefined) {
-      requirePermission(access, 'product.cost.view');
-    }
     const db = this.prisma.forBusiness(access.businessId);
     const [config, category] = await Promise.all([
       this.context.config(access.businessId),
@@ -143,7 +142,6 @@ export class ProductsService {
             nameEn: dto.nameEn,
             nameBn: dto.nameBn,
             unitKey,
-            purchasePrice: toDecimal(dto.purchasePrice ?? '0'),
             createdBy: actor.userId,
           },
           select,
@@ -158,7 +156,6 @@ export class ProductsService {
             changes: {
               code: created.code,
               nameEn: created.nameEn,
-              purchasePrice: moneyString(created.purchasePrice),
             },
             ip: actor.ip ?? null,
           },
@@ -173,9 +170,9 @@ export class ProductsService {
   }
 
   /**
-   * Plain fields (names, category, unit) need product.manage. The purchase price needs
-   * product.price.edit and (de)activation product.deactivate, both with a
-   * reason; by default only the owner level holds them.
+   * Plain fields (names, category, unit) need product.manage; (de)activation
+   * needs product.deactivate and a reason (owner level by default). There is
+   * no price to edit: the last purchase price is set by purchases only.
    */
   async update(access: BusinessAccess, id: string, dto: UpdateProductDto, actor: Actor) {
     const db = this.prisma.forBusiness(access.businessId);
@@ -191,7 +188,6 @@ export class ProductsService {
         nameEn: dto.nameEn,
         nameBn: dto.nameBn,
         unitKey: dto.unitKey,
-        purchasePrice: dto.purchasePrice && toDecimal(dto.purchasePrice).toFixed(2),
         isActive: dto.isActive,
       },
     );
@@ -200,11 +196,6 @@ export class ProductsService {
     }
 
     let reason: string | undefined;
-    if ('purchasePrice' in changes) {
-      requirePermission(access, 'product.cost.view');
-      requirePermission(access, 'product.price.edit');
-      reason = requireReason(dto.reason);
-    }
     if ('isActive' in changes) {
       requirePermission(access, 'product.deactivate');
       reason = requireReason(dto.reason);
@@ -237,8 +228,6 @@ export class ProductsService {
             nameEn: dto.nameEn,
             nameBn: dto.nameBn,
             unitKey: dto.unitKey,
-            purchasePrice:
-              dto.purchasePrice === undefined ? undefined : toDecimal(dto.purchasePrice),
             isActive: dto.isActive,
           },
           select,

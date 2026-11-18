@@ -75,6 +75,17 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
       ).body as { id: string }
     ).id;
 
+  const newCustomer = async (nameEn: string) =>
+    (
+      (
+        await send(t.server, 'post', path('customers'), who('owner'), {
+          nameEn,
+          phone: newPhone(),
+          creditLimit: '0',
+        }).expect(201)
+      ).body as { id: string }
+    ).id;
+
   beforeAll(async () => {
     await runSeed();
     t = await createTestApp();
@@ -222,10 +233,20 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
 
       const patch = (body: object) =>
         send(t.server, 'patch', path(`products/${id}`), who('owner'), body);
-      expect(shape(await patch({ purchasePrice: '1' }).expect(400))).toMatchObject({
+      expect(shape(await patch({ isActive: false }).expect(400))).toMatchObject({
         code: 'REASON_REQUIRED',
         field: 'reason',
       });
+      // The last purchase price is set by purchases only.
+      expect(
+        shape(await patch({ purchasePrice: '1', reason: 'new cost' }).expect(400)),
+      ).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        fields: ['purchasePrice:PURCHASE_PRICE_NOT_ALLOWED'],
+      });
+      expect(
+        shape(await product({ nameEn: 'Typed Cost', lastPurchasePrice: '1' }).expect(400)),
+      ).toMatchObject({ fields: ['lastPurchasePrice:LAST_PURCHASE_PRICE_NOT_ALLOWED'] });
       expect(shape(await patch({}).expect(400))).toMatchObject({
         code: 'NOTHING_TO_CHANGE',
         field: undefined,
@@ -261,8 +282,8 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
       send(t.server, 'post', path(`change-requests/${id}/${action}`), who(who_), body);
 
     it('codes every way a request can be wrong', async () => {
-      const id = await newProduct('Requested Product');
-      const base = { entityType: 'product', entityId: id, kind: 'edit', reason: 'new rate' };
+      const id = await newCustomer('Requested Customer');
+      const base = { entityType: 'customer', entityId: id, kind: 'edit', reason: 'new limit' };
       const cases: [object, number, string, string | undefined][] = [
         [
           { ...base, entityType: 'spaceship', proposedChange: { x: 1 } },
@@ -279,10 +300,10 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
           'proposedChange.nameEn',
         ],
         [
-          { ...base, proposedChange: { purchasePrice: 5 } },
+          { ...base, proposedChange: { creditLimit: 5 } },
           400,
-          'PURCHASE_PRICE_INVALID',
-          'proposedChange.purchasePrice',
+          'CREDIT_LIMIT_INVALID',
+          'proposedChange.creditLimit',
         ],
         [
           { ...base, proposedChange: { isActive: 'no' } },
@@ -290,9 +311,9 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
           'IS_ACTIVE_INVALID',
           'proposedChange.isActive',
         ],
-        [{ ...base, proposedChange: { purchasePrice: '0' } }, 400, 'NOTHING_TO_CHANGE', undefined],
+        [{ ...base, proposedChange: { creditLimit: '0' } }, 400, 'NOTHING_TO_CHANGE', undefined],
         [
-          { ...base, entityId: otherProductId, proposedChange: { purchasePrice: '1' } },
+          { ...base, entityId: otherProductId, proposedChange: { creditLimit: '1' } },
           404,
           'RECORD_NOT_FOUND',
           'entityId',
@@ -308,7 +329,7 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
       }
       const badKey = await ask(
         'manager',
-        { ...base, proposedChange: { purchasePrice: '1' } },
+        { ...base, proposedChange: { creditLimit: '1' } },
         { 'Idempotency-Key': 'bad key!' },
       ).expect(400);
       expect(shape(badKey)).toMatchObject({
@@ -317,7 +338,7 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
       });
       const hidden = await ask('salesman', {
         ...base,
-        proposedChange: { purchasePrice: '1' },
+        proposedChange: { creditLimit: '1' },
       }).expect(403);
       expect(shape(hidden)).toMatchObject({ code: 'ACCESS_DENIED' });
     });
@@ -328,8 +349,8 @@ describe.skipIf(!hasDatabase)('error codes and fields', () => {
         entityType: 'product',
         entityId: id,
         kind: 'edit',
-        reason: 'new rate',
-        proposedChange: { purchasePrice: '10' },
+        reason: 'not sold',
+        proposedChange: { isActive: false },
       };
       const first = (await ask('manager', body).expect(201)).body as { id: string };
       expect(shape(await ask('manager', body).expect(409))).toMatchObject({

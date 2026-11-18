@@ -43,7 +43,6 @@ describe.skipIf(!hasDatabase)('business data isolation in the Prisma client', ()
           nameEn: name,
           nameBn: name,
           unitKey: 'bag',
-          purchasePrice: '1',
         },
       });
     }
@@ -128,7 +127,6 @@ describe.skipIf(!hasDatabase)('business data isolation in the Prisma client', ()
           nameEn: 'Cross',
           nameBn: 'Cross',
           unitKey: 'bag',
-          purchasePrice: '1',
         },
       }),
     ).rejects.toThrow();

@@ -58,22 +58,22 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
   const who = (name: string) => as[name] ?? {};
   const path = (suffix: string, slug = shop.slug) => `/b/${slug}/${suffix}`;
 
-  const newProduct = async (cost = '540') => {
+  const newProduct = async () => {
     const response = await send(t.server, 'post', path('products'), who('owner'), {
       categoryId,
       nameEn: `Product ${String(Math.random()).slice(2, 10)}`,
       nameBn: 'পণ্য',
-      purchasePrice: cost,
     }).expect(201);
     return response.body as { id: string; code: string };
   };
-  const newCustomer = async (openingBalance = '1000') => {
+  const newCustomer = async (openingBalance = '1000', creditLimit = '560') => {
     const response = await send(t.server, 'post', path('customers'), who('owner'), {
       nameEn: `Customer ${String(Math.random()).slice(2, 10)}`,
       phone: nextPhone(),
       openingBalance,
+      creditLimit,
     }).expect(201);
-    return response.body as { id: string };
+    return response.body as { id: string; code: string };
   };
   const requestChange = (
     who_: string,
@@ -89,19 +89,21 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     }
     return call.send(body);
   };
-  const priceRequest = (productId: string, purchasePrice: string, extra: object = {}) => ({
-    entityType: 'product',
-    entityId: productId,
+  // A money change staff may ask for: a customer's credit limit.
+  const limitRequest = (customerId: string, creditLimit: string, extra: object = {}) => ({
+    entityType: 'customer',
+    entityId: customerId,
     kind: 'edit',
-    reason: 'The supplier changed the rate',
-    proposedChange: { purchasePrice, ...extra },
+    reason: 'The shop asked for more credit',
+    proposedChange: { creditLimit, ...extra },
   });
   // Staff without the cost-price permission can still ask to deactivate.
-  const deactivateRequest = (productId: string) => ({
-    entityType: 'product',
-    entityId: productId,
+  // Staff who cannot see dues can still ask to deactivate a customer.
+  const deactivateRequest = (customerId: string) => ({
+    entityType: 'customer',
+    entityId: customerId,
     kind: 'edit',
-    reason: 'No longer sold',
+    reason: 'Shop closed',
     proposedChange: { isActive: false },
   });
   const decide = (
@@ -143,36 +145,38 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
 
   describe('the full flow', () => {
     it('lets a manager request a price change that the owner approves, applied in one go', async () => {
-      const product = await newProduct('560');
-      const created = await requestChange('manager', priceRequest(product.id, '565')).expect(201);
+      const product = await newCustomer();
+      const created = await requestChange('manager', limitRequest(product.id, '565')).expect(201);
       const body = created.body as RequestBody;
       expect(body).toMatchObject({
         status: 'pending',
         entityLabel: expect.stringContaining(product.code) as string,
-        summary: 'Purchase price: 560.00 → 565.00',
-        snapshot: { purchasePrice: '560.00' },
-        proposedChange: { purchasePrice: '565.00' },
+        summary: 'Credit limit: 560.00 → 565.00',
+        snapshot: { creditLimit: '560.00' },
+        proposedChange: { creditLimit: '565.00' },
         isStale: false,
       });
       expect(body.impact).toEqual([
         {
-          key: 'product.purchasePrice',
-          label: 'Purchase price',
+          key: 'customer.creditLimit',
+          label: 'Credit limit',
           before: '560.00',
           after: '565.00',
         },
       ]);
 
       // Not applied yet.
-      const before = await get(t.server, path(`products/${product.id}`), who('manager')).expect(
+      const before = await get(t.server, path(`customers/${product.id}`), who('manager')).expect(
         200,
       );
-      expect((before.body as { purchasePrice: string }).purchasePrice).toBe('560.00');
+      expect((before.body as { creditLimit: string }).creditLimit).toBe('560.00');
 
       const approved = await decide('owner', body.id, 'approve', { note: 'ok' }).expect(200);
       expect((approved.body as RequestBody).status).toBe('approved');
-      const after = await get(t.server, path(`products/${product.id}`), who('manager')).expect(200);
-      expect((after.body as { purchasePrice: string }).purchasePrice).toBe('565.00');
+      const after = await get(t.server, path(`customers/${product.id}`), who('manager')).expect(
+        200,
+      );
+      expect((after.body as { creditLimit: string }).creditLimit).toBe('565.00');
 
       const audit = await t.prisma.client.auditLog.findMany({
         where: {
@@ -188,8 +192,8 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         'change_request.applied',
       ]);
       expect(audit[2]?.changes).toMatchObject({
-        before: { purchasePrice: '560.00' },
-        after: { purchasePrice: '565.00' },
+        before: { creditLimit: '560.00' },
+        after: { creditLimit: '565.00' },
       });
     });
 
@@ -238,9 +242,9 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('leaves the record untouched on rejection, which needs a note', async () => {
-      const product = await newProduct('560');
+      const product = await newCustomer();
       const id = (
-        (await requestChange('manager', priceRequest(product.id, '600')).expect(201))
+        (await requestChange('manager', limitRequest(product.id, '600')).expect(201))
           .body as RequestBody
       ).id;
       await decide('owner', id, 'reject').expect(400);
@@ -252,30 +256,32 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         status: 'rejected',
         decisionNote: 'Rate not confirmed',
       });
-      const after = await get(t.server, path(`products/${product.id}`), who('manager')).expect(200);
-      expect((after.body as { purchasePrice: string }).purchasePrice).toBe('560.00');
+      const after = await get(t.server, path(`customers/${product.id}`), who('manager')).expect(
+        200,
+      );
+      expect((after.body as { creditLimit: string }).creditLimit).toBe('560.00');
       await decide('owner', id, 'approve').expect(409); // decided already
     });
 
     it('lets the requester cancel their own pending request, and nobody else', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const id = (
-        (await requestChange('manager', priceRequest(product.id, '570')).expect(201))
+        (await requestChange('manager', limitRequest(product.id, '570')).expect(201))
           .body as RequestBody
       ).id;
       await decide('salesman', id, 'cancel').expect(404);
       await decide('manager', id, 'cancel').expect(200);
       await decide('manager', id, 'cancel').expect(409);
       // A new request is possible again.
-      await requestChange('manager', priceRequest(product.id, '570')).expect(201);
+      await requestChange('manager', limitRequest(product.id, '570')).expect(201);
     });
   });
 
   describe('rules', () => {
     it('never lets anyone decide their own request, the owner included', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const own = (
-        (await requestChange('owner', priceRequest(product.id, '575')).expect(201))
+        (await requestChange('owner', limitRequest(product.id, '575')).expect(201))
           .body as RequestBody
       ).id;
       await decide('owner', own, 'approve').expect(403);
@@ -284,8 +290,8 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('allows only one pending request per record', async () => {
-      const product = await newProduct();
-      await requestChange('manager', priceRequest(product.id, '561')).expect(201);
+      const product = await newCustomer();
+      await requestChange('manager', limitRequest(product.id, '561')).expect(201);
       const second = await requestChange('salesman', deactivateRequest(product.id)).expect(409);
       expect(second.body).toMatchObject({
         message: 'This record already has a pending change request',
@@ -293,22 +299,23 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('refuses an empty, unknown, unchanged or invalid change, and a void of master data', async () => {
-      const product = await newProduct('560');
-      await requestChange('manager', { ...priceRequest(product.id, '560') }).expect(400); // nothing changes
-      await requestChange('manager', { ...priceRequest(product.id, '5.555') }).expect(400);
-      await requestChange('manager', { ...priceRequest(product.id, '565'), reason: 'no' }).expect(
+      const product = await newCustomer();
+      await requestChange('manager', { ...limitRequest(product.id, '560') }).expect(400); // nothing changes
+      await requestChange('manager', { ...limitRequest(product.id, '5.555') }).expect(400);
+      await requestChange('manager', { ...limitRequest(product.id, '565'), reason: 'no' }).expect(
         400,
       );
+      const realProduct = await newProduct();
       await requestChange('manager', {
         entityType: 'product',
-        entityId: product.id,
+        entityId: realProduct.id,
         kind: 'edit',
         reason: 'rename',
         proposedChange: { nameEn: 'X' },
       }).expect(400); // plain fields are edited directly, not by request
       await requestChange('manager', {
         entityType: 'product',
-        entityId: product.id,
+        entityId: realProduct.id,
         kind: 'void',
         reason: 'gone',
       }).expect(400);
@@ -320,22 +327,22 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         proposedChange: { x: 1 },
       }).expect(400);
       await requestChange('manager', {
-        ...priceRequest('00000000-0000-7000-8000-000000000000', '565'),
+        ...limitRequest('00000000-0000-7000-8000-000000000000', '565'),
       }).expect(404);
     });
 
     it('marks a request stale when the record changed before approval, and applies nothing', async () => {
-      const product = await newProduct('560');
+      const product = await newCustomer();
       const id = (
-        (await requestChange('manager', priceRequest(product.id, '565')).expect(201))
+        (await requestChange('manager', limitRequest(product.id, '565')).expect(201))
           .body as RequestBody
       ).id;
       // The owner changes the price directly in the meantime (with a reason).
-      await send(t.server, 'patch', path(`products/${product.id}`), who('owner'), {
-        purchasePrice: '580',
+      await send(t.server, 'patch', path(`customers/${product.id}`), who('owner'), {
+        creditLimit: '580',
       }).expect(400);
-      await send(t.server, 'patch', path(`products/${product.id}`), who('owner'), {
-        purchasePrice: '580',
+      await send(t.server, 'patch', path(`customers/${product.id}`), who('owner'), {
+        creditLimit: '580',
         reason: 'New rate list',
       }).expect(200);
 
@@ -346,16 +353,18 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       expect(attempt.body).toMatchObject({ message: expect.stringContaining('stale') as string });
       const after = await get(t.server, path(`change-requests/${id}`), who('manager')).expect(200);
       expect((after.body as RequestBody).status).toBe('stale');
-      const productNow = await get(t.server, path(`products/${product.id}`), who('manager')).expect(
-        200,
-      );
-      expect((productNow.body as { purchasePrice: string }).purchasePrice).toBe('580.00');
+      const productNow = await get(
+        t.server,
+        path(`customers/${product.id}`),
+        who('manager'),
+      ).expect(200);
+      expect((productNow.body as { creditLimit: string }).creditLimit).toBe('580.00');
     });
 
     it('refuses to apply a pending request for a field that no longer exists', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const id = (
-        (await requestChange('manager', priceRequest(product.id, '541')).expect(201))
+        (await requestChange('manager', limitRequest(product.id, '541')).expect(201))
           .body as RequestBody
       ).id;
       // As if the request had been made before a field was removed from the record.
@@ -399,11 +408,11 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
 
     it('rolls everything back when applying fails half way', async () => {
       const registry = t.app.get(ChangeHandlerRegistry);
-      const product = await newProduct('560');
+      const product = await newProduct();
       const failing: ChangeHandler = {
         entityType: 'test_rollback',
         viewPermission: 'product.view',
-        fields: { purchasePrice: { label: 'Price', directPermission: 'product.price.edit' } },
+        fields: { creditLimit: { label: 'Limit', directPermission: 'customer.balance.edit' } },
         load: (tx, ctx, id, options) =>
           registry.find('product', 'dealership')?.load(tx, ctx, id, options) ??
           Promise.resolve(null),
@@ -421,7 +430,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const id = (
         (
           await requestChange('manager', {
-            ...priceRequest(product.id, '565.00'),
+            ...limitRequest(product.id, '565.00'),
             entityType: 'test_rollback',
           }).expect(201)
         ).body as RequestBody
@@ -438,16 +447,16 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('returns the same request for the same Idempotency-Key', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const key = `key-${String(Math.random()).slice(2, 14)}`;
-      const first = await requestChange('manager', priceRequest(product.id, '566'), {
+      const first = await requestChange('manager', limitRequest(product.id, '566'), {
         'Idempotency-Key': key,
       }).expect(201);
-      const again = await requestChange('manager', priceRequest(product.id, '566'), {
+      const again = await requestChange('manager', limitRequest(product.id, '566'), {
         'Idempotency-Key': key,
       }).expect(200);
       expect((again.body as RequestBody).id).toBe((first.body as RequestBody).id);
-      await requestChange('manager', priceRequest(product.id, '566'), {
+      await requestChange('manager', limitRequest(product.id, '566'), {
         'Idempotency-Key': 'bad key!',
       }).expect(400);
       const total = await t.prisma
@@ -459,7 +468,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
 
   describe('permissions', () => {
     it('lets staff request but not decide, list everything or see the badge', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const id = (
         (await requestChange('salesman', deactivateRequest(product.id)).expect(201))
           .body as RequestBody
@@ -477,7 +486,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     it('lets each role request only fields it may see', async () => {
       const product = await newProduct();
       const customer = await newCustomer();
-      await requestChange('salesman', priceRequest(product.id, '1')).expect(403); // no cost view
+      await requestChange('salesman', limitRequest(customer.id, '1')).expect(403); // no due view
       await requestChange('salesman', {
         entityType: 'customer',
         entityId: customer.id,
@@ -485,7 +494,13 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         reason: 'typo',
         proposedChange: { openingBalance: '1' },
       }).expect(403); // no due view
-      await requestChange('accountant', priceRequest(product.id, '1')).expect(403); // cannot see products
+      await requestChange('accountant', {
+        entityType: 'product',
+        entityId: product.id,
+        kind: 'edit',
+        reason: 'gone',
+        proposedChange: { isActive: false },
+      }).expect(403); // cannot see products
     });
 
     it('requires the approver to be allowed to make the same change directly', async () => {
@@ -499,7 +514,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         permissions: [...managerPermissions, 'change.approve', 'change.view.all'],
       }).expect(200);
 
-      const product = await newProduct();
+      const product = await newCustomer();
       const id = (
         (await requestChange('salesman', deactivateRequest(product.id)).expect(201))
           .body as RequestBody
@@ -513,12 +528,12 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('hides values the viewer may not see in the summary, snapshot and impact', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const id = (
         (
           await requestChange(
             'manager',
-            priceRequest(product.id, '545', { isActive: false }),
+            limitRequest(product.id, '545', { isActive: false }),
           ).expect(201)
         ).body as RequestBody
       ).id;
@@ -539,10 +554,10 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         who('salesman'),
       ).expect(200);
       const item = (list.body as { items: RequestBody[] }).items[0];
-      expect(item?.summary).toContain('Purchase price changed');
+      expect(item?.summary).toContain('Credit limit changed');
       expect(item?.summary).toContain('Active: true → false');
       expect(JSON.stringify(list.body)).not.toContain('545');
-      expect(JSON.stringify(list.body)).not.toContain('540');
+      expect(JSON.stringify(list.body)).not.toContain('560');
       expect(item).not.toHaveProperty('snapshot');
 
       const detail = await get(t.server, path(`change-requests/${id}`), who('salesman')).expect(
@@ -551,11 +566,11 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const body = detail.body as RequestBody;
       expect(body.snapshot).toEqual({ isActive: true });
       expect(body.proposedChange).toEqual({ isActive: false });
-      expect(body.impact?.map((line) => line.key)).toEqual(['product.isActive']);
+      expect(body.impact?.map((line) => line.key)).toEqual(['customer.isActive']);
 
       const forOwner = await get(t.server, path(`change-requests/${id}`), who('owner')).expect(200);
       expect((forOwner.body as RequestBody).snapshot).toEqual({
-        purchasePrice: '540.00',
+        creditLimit: '560.00',
         isActive: true,
       });
 
@@ -565,9 +580,9 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('keeps one business’s requests away from another', async () => {
-      const product = await newProduct();
+      const product = await newCustomer();
       const id = (
-        (await requestChange('manager', priceRequest(product.id, '571')).expect(201))
+        (await requestChange('manager', limitRequest(product.id, '571')).expect(201))
           .body as RequestBody
       ).id;
       await get(t.server, path(`change-requests/${id}`, other.slug), who('owner')).expect(404);
@@ -579,7 +594,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         who('owner'),
       ).expect(404);
       await get(t.server, path('change-requests', shop.slug), who('otherManager')).expect(403);
-      await requestChange('otherManager', priceRequest(product.id, '572'), {}, other.slug).expect(
+      await requestChange('otherManager', limitRequest(product.id, '572'), {}, other.slug).expect(
         404,
       );
     });
@@ -605,7 +620,6 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
             categoryId: category,
             nameEn: `Item ${String(index)}`,
             nameBn: 'x',
-            purchasePrice: '100',
           }).expect(201)
         ).body as { id: string };
         await send(t.server, 'post', `/b/${shopList.slug}/change-requests`, managerCookies, {
@@ -613,7 +627,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
           entityId: product.id,
           kind: 'edit',
           reason: 'rate',
-          proposedChange: { purchasePrice: '110' },
+          proposedChange: { isActive: false },
         }).expect(201);
       }
 
@@ -691,7 +705,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const handler: ChangeHandler = {
         entityType: 'test_widget',
         viewPermission: 'product.view',
-        fields: { price: { label: 'Price', directPermission: 'product.price.edit' } },
+        fields: { price: { label: 'Price', directPermission: 'product.deactivate' } },
         void: { label: 'Void widget sale', directPermission: 'product.deactivate' },
         load: (_tx, _ctx, id) => {
           const widget = widgets.get(id);

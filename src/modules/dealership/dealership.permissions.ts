@@ -21,9 +21,9 @@ export const DEALERSHIP_PERMISSIONS: PermissionGroup = {
     { key: 'product.view', defaultRoles: ['manager', 'salesman'] },
     { key: 'product.manage', defaultRoles: ['manager'] },
     { key: 'product.cost.view', defaultRoles: ['manager'] },
-    // Changing a price or deactivating after creation: owner level only by
-    // default (staff will send a change request instead, Step 4b).
-    { key: 'product.price.edit' },
+    // Deactivating after creation: owner level only by default (staff send a
+    // change request instead). Products carry no editable price: the last
+    // purchase price is set by purchases only.
     { key: 'product.deactivate' },
     { key: 'customer.view', defaultRoles: ['manager', 'salesman', 'accountant'] },
     { key: 'customer.manage', defaultRoles: ['manager', 'salesman'] },
