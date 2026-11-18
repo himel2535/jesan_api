@@ -282,3 +282,31 @@ Passport নেওয়া হয়নি: গার্ড নিজে লে
 - অস্তিত্ব আন্দাজের অপব্যবহার ঠেকাতে: rate limit প্রতি **ইউজার** (IP নয়) প্রতি মিনিটে ২০টা (`UserThrottlerGuard`), আর প্রতিটা খোঁজ audit-এ (`user.lookup`: ইমেইল নাকি ফোন, পাওয়া গেল কি না, পাওয়া ইউজারের id; খোঁজার মানটা নয়)।
 - ডুপ্লিকেট ইউজার তৈরিতে 409-এর উত্তরে বিদ্যমান ইউজারের id দেওয়া হয় না (টেস্টে নিশ্চিত); id পেতে lookup।
 - ইউজারকে ব্যবসা-স্তরের `owner` রোল দেওয়া যায়; owner-only অনুমতি পান না। platform owner বানানো শুধু `admin:create` দিয়ে।
+
+## ২০২৬-১১-১৮: সংশোধন ও বাতিলের অনুমোদন ব্যবস্থা (Step 4b)
+
+### কাঠামো
+
+- একটাই সাধারণ টেবিল `change_requests` (`src/core/approvals`), আলাদা ইতিহাসের টেবিল নয়; প্রতিটা ধাপ `audit_logs`-এ (`change_request.created/approved/applied/rejected/cancelled/stale`)। core কোনো module বা ব্যবসার নাম জানে না: module নিজের `ChangeHandler` (`load`, `validateEdit`, `validateVoid`, `preview`, `applyEdit`, `applyVoid`) `ChangeHandlerRegistry`-তে নিবন্ধন করে। টেস্টে একটা in-memory নকল handler কাঠামো না বদলে নতুন ধরন ও তার void-reversal দেখায়।
+- core সামলায় লক, version যাচাই, অবস্থা, audit আর transaction; handler শুধু নিজের টেবিল, একই `tx`-এ।
+- stale ধরা হয় রেকর্ডের নতুন `version` কলাম দিয়ে (`updatedAt`-এর মিলিসেকেন্ডে নির্ভর না করে); মাস্টার ডেটার চার টেবিলে `version` ও `updated_by` যোগ, প্রতিটা বদলে `version` বাড়ে।
+- `summary` কলাম রাখা হয়নি (প্ল্যান থেকে ছোট বিচ্যুতি): সারাংশ দর্শকের অনুমতি অনুযায়ী পড়ার সময় তৈরি হয়, কারণ সংরক্ষিত এক লাইনের সারাংশে লুকানো মান (যেমন কেনা-দাম) চলে যেত। snapshot ছোট (শুধু প্রস্তাবিত ফিল্ড), তাই খরচ নেই।
+- একটা রেকর্ডে একসাথে একটাই pending: partial unique index `(business_id, entity_type, entity_id) WHERE status = 'pending'`। Idempotency: partial unique `(business_id, requested_by, idempotency_key)`; একই key আবার এলে আগের অনুরোধ 200-এ।
+- অনুমোদন: অনুরোধ ও রেকর্ড দুটোই `SELECT … FOR UPDATE` (raw SQL-এ নিজে `business_id`); দুজন একসাথে অনুমোদনে একজনই সফল (টেস্টে ৩ জন একসাথে: 200, 409, 409)। version না মিললে অনুরোধ `stale` হয়ে commit, তারপর 409। প্রয়োগে ত্রুটিতে পুরো rollback, অনুরোধ `pending` থাকে।
+- অনুমোদনকারীর `change.approve` ছাড়াও প্রতিটা ফিল্ডের সরাসরি-অনুমতি লাগে (বাতিলে `*.void`)। ফলে owner-only অনুমতির পেছনের কোনো ভবিষ্যৎ বদল শুধু platform owner অনুমোদন করতে পারবেন। নিজের অনুরোধে সিদ্ধান্ত নিষিদ্ধ, মালিক হলেও।
+- অনুরোধকারী যে ফিল্ড দেখতে পারেন না, তার অনুরোধও পারেন না (403); snapshot, proposed, impact ও summary দর্শকের অনুমতি অনুযায়ী ছাঁটা। `isStale` pending-এ এখনকার version থেকে, আর `stale` অবস্থায় সবসময় `true`।
+- অনুমতি: `change.request`, `change.view.own` (ডিফল্ট manager, accountant, salesman), `change.view.all`, `change.approve` (ডিফল্ট কেউ না; ব্যবসা-স্তরের owner রোল ও platform owner পান)। কোনোটাই owner-only নয়, যাতে অংশীদার-owner অনুমোদন দিতে পারেন এবং মালিক চাইলে বিশ্বস্ত কাউকে দিতে পারেন। মোট অনুমতি এখন ৪০টা।
+- মাস্টার ডেটায় void নেই; নিষ্ক্রিয় করাই তার জায়গা (`isActive: false` দিয়ে edit)।
+
+### Step 5-এর জন্য ঠিক করা নিয়ম (মালিকের উত্তর)
+
+- কেনা বাতিলে স্টক ঋণাত্মক হলে বাতিল আটকাবে (409); স্টক কখনো ঋণাত্মক নয়।
+- বাতিলের উল্টো এন্ট্রি বাতিলের তারিখে; মূল এন্ট্রি অপরিবর্তিত, বাতিল চিহ্নসহ।
+- সংশোধন পার্থক্য (delta) হিসেবে atomic `increment`/`decrement`-এ (মোট, বাকি, স্টক, counter), পুরো ফেরত-নতুন নয়।
+- অনুমোদনকারী প্রস্তাবিত মান বদলাতে পারেন না; অন্য মান চাইলে প্রত্যাখ্যান করে নিজে সরাসরি সংশোধন (কারণসহ)।
+- হিসাবরক্ষকও `change.view.own` পান।
+
+### পারফরম্যান্স
+
+- তালিকা ১০টা করে, `(business_id, status, requested_at)` ও `(business_id, requested_by, requested_at)` index-এ; `pending-count` একই index থেকে। তালিকায় snapshot বা preview নয়, শুধু বিস্তারিততে।
+- impact শুধু pending-এর বিস্তারিততে, এক transaction-এ handler-এর `load` + `preview` (মাস্টার ডেটায় এক-দুটো query)।

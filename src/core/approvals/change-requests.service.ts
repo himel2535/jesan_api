@@ -231,7 +231,7 @@ export class ChangeRequestsService {
     }
     const handler = this.registry.find(row.entityType, access.businessType);
     let impact: ImpactLine[] | null = null;
-    let isStale = false;
+    let isStale = row.status === 'stale';
     if (row.status === 'pending' && handler) {
       const ctx = contextOf(access, actor);
       const live = await db.$transaction(async (tx) => {
