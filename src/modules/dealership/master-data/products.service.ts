@@ -31,7 +31,6 @@ const select = {
   nameBn: true,
   unitKey: true,
   purchasePrice: true,
-  defaultSalePrice: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -53,7 +52,6 @@ function toResponse(row: ProductRow) {
     nameBn: row.nameBn,
     unitKey: row.unitKey,
     purchasePrice: moneyString(row.purchasePrice),
-    defaultSalePrice: moneyString(row.defaultSalePrice),
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -136,7 +134,6 @@ export class ProductsService {
             nameBn: dto.nameBn,
             unitKey,
             purchasePrice: toDecimal(dto.purchasePrice ?? '0'),
-            defaultSalePrice: toDecimal(dto.defaultSalePrice),
             createdBy: actor.userId,
           },
           select,
@@ -152,7 +149,6 @@ export class ProductsService {
               code: created.code,
               nameEn: created.nameEn,
               purchasePrice: moneyString(created.purchasePrice),
-              defaultSalePrice: moneyString(created.defaultSalePrice),
             },
             ip: actor.ip ?? null,
           },
@@ -167,7 +163,7 @@ export class ProductsService {
   }
 
   /**
-   * Plain fields (names, category, unit) need product.manage. Prices need
+   * Plain fields (names, category, unit) need product.manage. The purchase price needs
    * product.price.edit and (de)activation product.deactivate, both with a
    * reason; by default only the owner level holds them.
    */
@@ -186,7 +182,6 @@ export class ProductsService {
         nameBn: dto.nameBn,
         unitKey: dto.unitKey,
         purchasePrice: dto.purchasePrice && toDecimal(dto.purchasePrice).toFixed(2),
-        defaultSalePrice: dto.defaultSalePrice && toDecimal(dto.defaultSalePrice).toFixed(2),
         isActive: dto.isActive,
       },
     );
@@ -197,8 +192,6 @@ export class ProductsService {
     let reason: string | undefined;
     if ('purchasePrice' in changes) {
       requirePermission(access, 'product.cost.view');
-    }
-    if ('purchasePrice' in changes || 'defaultSalePrice' in changes) {
       requirePermission(access, 'product.price.edit');
       reason = requireReason(dto.reason);
     }
@@ -236,8 +229,6 @@ export class ProductsService {
             unitKey: dto.unitKey,
             purchasePrice:
               dto.purchasePrice === undefined ? undefined : toDecimal(dto.purchasePrice),
-            defaultSalePrice:
-              dto.defaultSalePrice === undefined ? undefined : toDecimal(dto.defaultSalePrice),
             isActive: dto.isActive,
           },
           select,

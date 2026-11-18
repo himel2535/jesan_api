@@ -155,7 +155,7 @@ Next.js-এর Server Component বা Route Handler থেকে ডাকল�
 | GET | `/b/:businessSlug/products?search=&categoryId=&active=&page=` | হ্যাঁ | `product.view` | 200 |
 | GET | `/b/:businessSlug/products/:id` | হ্যাঁ | `product.view` | 200 |
 | POST | `/b/:businessSlug/products` | হ্যাঁ | `product.manage` (+ কেনা-দামে `product.cost.view`) | 201 |
-| PATCH | `/b/:businessSlug/products/:id` | হ্যাঁ | `product.manage` (+ দামে `product.price.edit`, নিষ্ক্রিয়ে `product.deactivate`) | 200 |
+| PATCH | `/b/:businessSlug/products/:id` | হ্যাঁ | `product.manage` (+ কেনা-দামে `product.price.edit`, নিষ্ক্রিয়ে `product.deactivate`) | 200 |
 | GET | `/b/:businessSlug/customers?search=&active=&page=` | হ্যাঁ | `customer.view` | 200 |
 | GET | `/b/:businessSlug/customers/:id` | হ্যাঁ | `customer.view` | 200 |
 | POST | `/b/:businessSlug/customers` | হ্যাঁ | `customer.manage` (+ বাকি/সীমায় `customer.due.view`) | 201 |
@@ -694,7 +694,6 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
       "nameBn": "নমুনা ওপিসি ৫০ কেজি",
       "unitKey": "bag",
       "purchasePrice": "540.00",
-      "defaultSalePrice": "560.00",
       "isActive": true,
       "createdAt": "2026-11-17T08:38:04.236Z",
       "updatedAt": "2026-11-17T08:38:04.236Z"
@@ -715,20 +714,19 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
   "categoryId": "01a1e8a7-f6d0-7858-ba94-86452eb3eb44",
   "nameEn": "Sample OPC 40kg",
   "nameBn": "নমুনা ওপিসি ৪০ কেজি",
-  "purchasePrice": "450",
-  "defaultSalePrice": "470"
+  "purchasePrice": "450"
 }
 ```
 
-→ 201, তৈরি হওয়া পণ্য (`"code": "P-0005"`, দাম `"450.00"` / `"470.00"`)।
+→ 201, তৈরি হওয়া পণ্য (`"code": "P-0005"`, `"purchasePrice": "450.00"`)।
 
-`PATCH products/:id`: `nameEn`, `nameBn`, `categoryId`, `unitKey` (`product.manage`); `purchasePrice`, `defaultSalePrice` (`product.price.edit` + `reason`); `isActive` (`product.deactivate` + `reason`)। উদাহরণ (মালিক):
+**পণ্যে বিক্রয়মূল্য নেই।** মালিক প্রতি গ্রাহকের কাছে আলাদা দামে বেচেন; দাম বসবে বিক্রির সময় ইনভয়েসে (Step 5)। `defaultSalePrice` পাঠালে 400 (অচেনা ফিল্ড), আর উত্তরেও এই ফিল্ড আসে না।
+
+`PATCH products/:id`: `nameEn`, `nameBn`, `categoryId`, `unitKey` (`product.manage`); `purchasePrice` (`product.cost.view` + `product.price.edit` + `reason`); `isActive` (`product.deactivate` + `reason`)। উদাহরণ (মালিক):
 
 ```json
-{ "defaultSalePrice": "565", "reason": "new rate from Akij" }
+{ "purchasePrice": "545", "reason": "new rate from Akij" }
 ```
-
-`defaultSalePrice` শুধু ডিফল্ট; বিক্রির সময় প্রতিটা বিক্রিতে আলাদা দাম দেওয়া যাবে, কেনা-দামের চেয়ে কম হলেও কোনো সতর্কতা নেই।
 
 ত্রুটি: একই নাম 409 `A product with this name already exists`; অজানা বা নিষ্ক্রিয় ক্যাটাগরি 400 `Category not found or inactive`; settings-এ নেই এমন একক 400 `Unknown unit: ton`; টাকা সংখ্যা হিসেবে পাঠালে 400।
 
@@ -838,7 +836,6 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 | `entityType` | ফিল্ড | দেখতে লাগে | অনুমোদনে (সরাসরি) লাগে |
 |---|---|---|---|
 | `product` | `purchasePrice` | `product.cost.view` | `product.price.edit` |
-| `product` | `defaultSalePrice` | - | `product.price.edit` |
 | `product` | `isActive` | - | `product.deactivate` |
 | `customer` | `openingBalance`, `creditLimit` | `customer.due.view` | `customer.balance.edit` |
 | `customer` | `isActive` | - | `customer.deactivate` |
@@ -897,7 +894,7 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
   "entityId": "01a1ed61-301a-75e8-a675-1fc7defd7876",
   "kind": "edit",
   "reason": "Akij changed the rate from today",
-  "proposedChange": { "defaultSalePrice": "565", "purchasePrice": "545" }
+  "proposedChange": { "purchasePrice": "545", "isActive": false }
 }
 ```
 
@@ -912,18 +909,18 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
   "entityId": "01a1ed61-301a-75e8-a675-1fc7defd7876",
   "entityLabel": "P-0001 Sample OPC 50kg",
   "kind": "edit",
-  "summary": "Purchase price: 540.00 → 545.00; Default sale price: 560.00 → 565.00",
+  "summary": "Active: true → false; Purchase price: 540.00 → 545.00",
   "status": "pending",
   "requestedBy": { "id": "01a1ed61-40e3-71f7-b8f9-67299cfb0785", "name": "Rahim Uddin" },
   "requestedAt": "2026-11-18T06:38:56.479Z",
   "decidedBy": null,
   "decidedAt": null,
   "reason": "Akij changed the rate from today",
-  "snapshot": { "purchasePrice": "540.00", "defaultSalePrice": "560.00" },
-  "proposedChange": { "purchasePrice": "545.00", "defaultSalePrice": "565.00" },
+  "snapshot": { "isActive": true, "purchasePrice": "540.00" },
+  "proposedChange": { "isActive": false, "purchasePrice": "545.00" },
   "impact": [
-    { "key": "product.purchasePrice", "label": "Purchase price", "before": "540.00", "after": "545.00" },
-    { "key": "product.defaultSalePrice", "label": "Default sale price", "before": "560.00", "after": "565.00" }
+    { "key": "product.isActive", "label": "Active", "before": true, "after": false, "note": "While inactive it cannot be chosen for new entries; existing records stay." },
+    { "key": "product.purchasePrice", "label": "Purchase price", "before": "540.00", "after": "545.00" }
   ],
   "isStale": false,
   "decisionNote": null,
@@ -944,7 +941,7 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
       "entityId": "01a1ed61-301a-75e8-a675-1fc7defd7876",
       "entityLabel": "P-0001 Sample OPC 50kg",
       "kind": "edit",
-      "summary": "Purchase price: 540.00 → 545.00; Default sale price: 560.00 → 565.00",
+      "summary": "Active: true → false; Purchase price: 540.00 → 545.00",
       "status": "pending",
       "requestedBy": { "id": "01a1ed61-40e3-71f7-b8f9-67299cfb0785", "name": "Rahim Uddin" },
       "requestedAt": "2026-11-18T06:38:56.479Z",
@@ -1082,7 +1079,7 @@ Retry-After: 60
 | `product.view` | dealership | | ✓ | | ✓ | পণ্য ও category দেখা |
 | `product.manage` | dealership | | ✓ | | | পণ্য ও category বানানো, বদলানো |
 | `product.cost.view` | dealership | | ✓ | | | কেনা-দাম দেখা |
-| `product.price.edit` | dealership | | | | | তৈরির পরে কেনা-দাম ও বিক্রয়মূল্য বদল (কারণসহ) |
+| `product.price.edit` | dealership | | | | | তৈরির পরে কেনা-দাম বদল (কারণসহ) |
 | `product.deactivate` | dealership | | | | | পণ্য ও ক্যাটাগরি নিষ্ক্রিয়/সক্রিয় (কারণসহ) |
 | `customer.view` | dealership | | ✓ | ✓ | ✓ | গ্রাহকের তালিকা |
 | `customer.manage` | dealership | | ✓ | | ✓ | গ্রাহক যোগ ও বদল |

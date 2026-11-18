@@ -47,7 +47,6 @@ export class ProductResponse {
   @Expose() nameBn!: string;
   @Expose() unitKey!: string;
   @VisibleWith('product.cost.view') purchasePrice!: string;
-  @Expose() defaultSalePrice!: string;
   @Expose() isActive!: boolean;
   @Expose() createdAt!: string;
   @Expose() updatedAt!: string;

@@ -58,13 +58,12 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
   const who = (name: string) => as[name] ?? {};
   const path = (suffix: string, slug = shop.slug) => `/b/${slug}/${suffix}`;
 
-  const newProduct = async (salePrice = '560') => {
+  const newProduct = async (cost = '540') => {
     const response = await send(t.server, 'post', path('products'), who('owner'), {
       categoryId,
       nameEn: `Product ${String(Math.random()).slice(2, 10)}`,
       nameBn: 'পণ্য',
-      purchasePrice: '540',
-      defaultSalePrice: salePrice,
+      purchasePrice: cost,
     }).expect(201);
     return response.body as { id: string; code: string };
   };
@@ -90,12 +89,20 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     }
     return call.send(body);
   };
-  const priceRequest = (productId: string, defaultSalePrice: string, extra: object = {}) => ({
+  const priceRequest = (productId: string, purchasePrice: string, extra: object = {}) => ({
     entityType: 'product',
     entityId: productId,
     kind: 'edit',
     reason: 'The supplier changed the rate',
-    proposedChange: { defaultSalePrice, ...extra },
+    proposedChange: { purchasePrice, ...extra },
+  });
+  // Staff without the cost-price permission can still ask to deactivate.
+  const deactivateRequest = (productId: string) => ({
+    entityType: 'product',
+    entityId: productId,
+    kind: 'edit',
+    reason: 'No longer sold',
+    proposedChange: { isActive: false },
   });
   const decide = (
     who_: string,
@@ -142,15 +149,15 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       expect(body).toMatchObject({
         status: 'pending',
         entityLabel: expect.stringContaining(product.code) as string,
-        summary: 'Default sale price: 560.00 → 565.00',
-        snapshot: { defaultSalePrice: '560.00' },
-        proposedChange: { defaultSalePrice: '565.00' },
+        summary: 'Purchase price: 560.00 → 565.00',
+        snapshot: { purchasePrice: '560.00' },
+        proposedChange: { purchasePrice: '565.00' },
         isStale: false,
       });
       expect(body.impact).toEqual([
         {
-          key: 'product.defaultSalePrice',
-          label: 'Default sale price',
+          key: 'product.purchasePrice',
+          label: 'Purchase price',
           before: '560.00',
           after: '565.00',
         },
@@ -160,12 +167,12 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const before = await get(t.server, path(`products/${product.id}`), who('manager')).expect(
         200,
       );
-      expect((before.body as { defaultSalePrice: string }).defaultSalePrice).toBe('560.00');
+      expect((before.body as { purchasePrice: string }).purchasePrice).toBe('560.00');
 
       const approved = await decide('owner', body.id, 'approve', { note: 'ok' }).expect(200);
       expect((approved.body as RequestBody).status).toBe('approved');
       const after = await get(t.server, path(`products/${product.id}`), who('manager')).expect(200);
-      expect((after.body as { defaultSalePrice: string }).defaultSalePrice).toBe('565.00');
+      expect((after.body as { purchasePrice: string }).purchasePrice).toBe('565.00');
 
       const audit = await t.prisma.client.auditLog.findMany({
         where: {
@@ -181,8 +188,8 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         'change_request.applied',
       ]);
       expect(audit[2]?.changes).toMatchObject({
-        before: { defaultSalePrice: '560.00' },
-        after: { defaultSalePrice: '565.00' },
+        before: { purchasePrice: '560.00' },
+        after: { purchasePrice: '565.00' },
       });
     });
 
@@ -246,7 +253,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         decisionNote: 'Rate not confirmed',
       });
       const after = await get(t.server, path(`products/${product.id}`), who('manager')).expect(200);
-      expect((after.body as { defaultSalePrice: string }).defaultSalePrice).toBe('560.00');
+      expect((after.body as { purchasePrice: string }).purchasePrice).toBe('560.00');
       await decide('owner', id, 'approve').expect(409); // decided already
     });
 
@@ -279,7 +286,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     it('allows only one pending request per record', async () => {
       const product = await newProduct();
       await requestChange('manager', priceRequest(product.id, '561')).expect(201);
-      const second = await requestChange('salesman', priceRequest(product.id, '562')).expect(409);
+      const second = await requestChange('salesman', deactivateRequest(product.id)).expect(409);
       expect(second.body).toMatchObject({
         message: 'This record already has a pending change request',
       });
@@ -325,10 +332,10 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       ).id;
       // The owner changes the price directly in the meantime (with a reason).
       await send(t.server, 'patch', path(`products/${product.id}`), who('owner'), {
-        defaultSalePrice: '580',
+        purchasePrice: '580',
       }).expect(400);
       await send(t.server, 'patch', path(`products/${product.id}`), who('owner'), {
-        defaultSalePrice: '580',
+        purchasePrice: '580',
         reason: 'New rate list',
       }).expect(200);
 
@@ -342,7 +349,23 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const productNow = await get(t.server, path(`products/${product.id}`), who('manager')).expect(
         200,
       );
-      expect((productNow.body as { defaultSalePrice: string }).defaultSalePrice).toBe('580.00');
+      expect((productNow.body as { purchasePrice: string }).purchasePrice).toBe('580.00');
+    });
+
+    it('refuses to apply a pending request for a field that no longer exists', async () => {
+      const product = await newProduct();
+      const id = (
+        (await requestChange('manager', priceRequest(product.id, '541')).expect(201))
+          .body as RequestBody
+      ).id;
+      // As if the request had been made before a field was removed from the record.
+      await t.prisma.forBusiness(shop.id).changeRequest.update({
+        where: { id },
+        data: { proposedChange: { defaultSalePrice: '600.00' } },
+      });
+      await decide('owner', id, 'approve').expect(409);
+      const after = await get(t.server, path(`change-requests/${id}`), who('owner')).expect(200);
+      expect((after.body as RequestBody).status).toBe('pending');
     });
 
     it('applies only once when two approvers approve at the same moment', async () => {
@@ -380,7 +403,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       const failing: ChangeHandler = {
         entityType: 'test_rollback',
         viewPermission: 'product.view',
-        fields: { defaultSalePrice: { label: 'Price', directPermission: 'product.price.edit' } },
+        fields: { purchasePrice: { label: 'Price', directPermission: 'product.price.edit' } },
         load: (tx, ctx, id, options) =>
           registry.find('product', 'dealership')?.load(tx, ctx, id, options) ??
           Promise.resolve(null),
@@ -438,7 +461,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     it('lets staff request but not decide, list everything or see the badge', async () => {
       const product = await newProduct();
       const id = (
-        (await requestChange('salesman', priceRequest(product.id, '567')).expect(201))
+        (await requestChange('salesman', deactivateRequest(product.id)).expect(201))
           .body as RequestBody
       ).id;
       for (const staff of ['manager', 'accountant', 'salesman']) {
@@ -454,9 +477,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     it('lets each role request only fields it may see', async () => {
       const product = await newProduct();
       const customer = await newCustomer();
-      await requestChange('salesman', priceRequest(product.id, '1', { purchasePrice: '1' })).expect(
-        403,
-      ); // no cost view
+      await requestChange('salesman', priceRequest(product.id, '1')).expect(403); // no cost view
       await requestChange('salesman', {
         entityType: 'customer',
         entityId: customer.id,
@@ -468,7 +489,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
     });
 
     it('requires the approver to be allowed to make the same change directly', async () => {
-      // Give the manager change.approve, but not product.price.edit.
+      // Give the manager change.approve, but not product.deactivate.
       const matrix = await get(t.server, path('roles/permissions'), who('owner')).expect(200);
       const managerPermissions =
         (matrix.body as { roles: { key: string; permissions: string[] }[] }).roles.find(
@@ -480,7 +501,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
 
       const product = await newProduct();
       const id = (
-        (await requestChange('salesman', priceRequest(product.id, '568')).expect(201))
+        (await requestChange('salesman', deactivateRequest(product.id)).expect(201))
           .body as RequestBody
       ).id;
       await decide('manager', id, 'approve').expect(403);
@@ -497,7 +518,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         (
           await requestChange(
             'manager',
-            priceRequest(product.id, '569', { purchasePrice: '545' }),
+            priceRequest(product.id, '545', { isActive: false }),
           ).expect(201)
         ).body as RequestBody
       ).id;
@@ -518,7 +539,8 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         who('salesman'),
       ).expect(200);
       const item = (list.body as { items: RequestBody[] }).items[0];
-      expect(item?.summary).toBe('Purchase price changed; Default sale price: 560.00 → 569.00');
+      expect(item?.summary).toContain('Purchase price changed');
+      expect(item?.summary).toContain('Active: true → false');
       expect(JSON.stringify(list.body)).not.toContain('545');
       expect(JSON.stringify(list.body)).not.toContain('540');
       expect(item).not.toHaveProperty('snapshot');
@@ -527,14 +549,14 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
         200,
       );
       const body = detail.body as RequestBody;
-      expect(body.snapshot).toEqual({ defaultSalePrice: '560.00' });
-      expect(body.proposedChange).toEqual({ defaultSalePrice: '569.00' });
-      expect(body.impact?.map((line) => line.key)).toEqual(['product.defaultSalePrice']);
+      expect(body.snapshot).toEqual({ isActive: true });
+      expect(body.proposedChange).toEqual({ isActive: false });
+      expect(body.impact?.map((line) => line.key)).toEqual(['product.isActive']);
 
       const forOwner = await get(t.server, path(`change-requests/${id}`), who('owner')).expect(200);
       expect((forOwner.body as RequestBody).snapshot).toEqual({
         purchasePrice: '540.00',
-        defaultSalePrice: '560.00',
+        isActive: true,
       });
 
       await send(t.server, 'put', path('roles/salesman/permissions'), who('owner'), {
@@ -583,7 +605,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
             categoryId: category,
             nameEn: `Item ${String(index)}`,
             nameBn: 'x',
-            defaultSalePrice: '100',
+            purchasePrice: '100',
           }).expect(201)
         ).body as { id: string };
         await send(t.server, 'post', `/b/${shopList.slug}/change-requests`, managerCookies, {
@@ -591,7 +613,7 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
           entityId: product.id,
           kind: 'edit',
           reason: 'rate',
-          proposedChange: { defaultSalePrice: '110' },
+          proposedChange: { purchasePrice: '110' },
         }).expect(201);
       }
 

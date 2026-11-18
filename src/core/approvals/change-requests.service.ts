@@ -283,6 +283,10 @@ export class ChangeRequestsService {
         throw new ConflictException('This kind of record can no longer be changed here');
       }
       const proposed = asValues(request.proposedChange);
+      // A field the handler no longer supports (e.g. removed from the record).
+      if (Object.keys(proposed).some((key) => !(key in handler.fields))) {
+        throw new ConflictException('This change can no longer be applied');
+      }
       this.requireDirectPermissions(handler, request.kind, Object.keys(proposed), access);
 
       const current = await handler.load(tx, ctx, request.entityId, { forUpdate: true });

@@ -130,10 +130,6 @@ export class CreateProductDto {
   @IsString()
   @Matches(MONEY_PATTERN, { message: `purchasePrice ${MONEY_MESSAGE}` })
   purchasePrice?: string;
-
-  @IsString()
-  @Matches(MONEY_PATTERN, { message: `defaultSalePrice ${MONEY_MESSAGE}` })
-  defaultSalePrice!: string;
 }
 
 export class UpdateProductDto extends WithReason {
@@ -164,11 +160,6 @@ export class UpdateProductDto extends WithReason {
   @IsString()
   @Matches(MONEY_PATTERN, { message: `purchasePrice ${MONEY_MESSAGE}` })
   purchasePrice?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(MONEY_PATTERN, { message: `defaultSalePrice ${MONEY_MESSAGE}` })
-  defaultSalePrice?: string;
 
   @IsOptional()
   @IsBoolean()

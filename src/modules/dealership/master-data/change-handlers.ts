@@ -78,7 +78,6 @@ const productFields = {
     directPermission: 'product.price.edit',
     visibleWith: 'product.cost.view',
   },
-  defaultSalePrice: { label: 'Default sale price', directPermission: 'product.price.edit' },
   isActive: { label: 'Active', directPermission: 'product.deactivate' },
 } as const;
 
@@ -99,7 +98,6 @@ export const productChangeHandler: ChangeHandler = {
         nameEn: true,
         version: true,
         purchasePrice: true,
-        defaultSalePrice: true,
         isActive: true,
       },
     });
@@ -109,7 +107,6 @@ export const productChangeHandler: ChangeHandler = {
           label: `${row.code} ${row.nameEn}`,
           values: {
             purchasePrice: moneyString(row.purchasePrice),
-            defaultSalePrice: moneyString(row.defaultSalePrice),
             isActive: row.isActive,
           },
         }
@@ -143,9 +140,6 @@ export const productChangeHandler: ChangeHandler = {
       data: {
         ...(typeof values['purchasePrice'] === 'string'
           ? { purchasePrice: toDecimal(values['purchasePrice']) }
-          : {}),
-        ...(typeof values['defaultSalePrice'] === 'string'
-          ? { defaultSalePrice: toDecimal(values['defaultSalePrice']) }
           : {}),
         ...(typeof values['isActive'] === 'boolean' ? { isActive: values['isActive'] } : {}),
         version: { increment: 1 },

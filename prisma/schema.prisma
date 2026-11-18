@@ -271,8 +271,6 @@ model Product {
   unitKey          String   @map("unit_key") @db.VarChar(16)
   /// Current cost price. Hidden without product.cost.view.
   purchasePrice    Decimal  @map("purchase_price") @db.Decimal(14, 2)
-  /// Default selling price; each sale may use another price.
-  defaultSalePrice Decimal  @map("default_sale_price") @db.Decimal(14, 2)
   isActive         Boolean  @default(true) @map("is_active")
   createdBy        String?  @map("created_by") @db.Uuid
   updatedBy        String?  @map("updated_by") @db.Uuid
