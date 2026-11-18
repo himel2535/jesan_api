@@ -24,13 +24,16 @@ export function problemFor(constraint: string): string {
   return PROBLEMS[constraint] ?? 'INVALID';
 }
 
-/** One entry per field; REQUIRED wins, otherwise the first broken rule. */
+/** One entry per field: REQUIRED first, then a wrong type or format (INVALID), then the rest. */
 export function fieldErrors(errors: ValidationError[], parent = ''): FieldError[] {
   const result: FieldError[] = [];
   for (const error of errors) {
     const field = parent ? `${parent}.${error.property}` : error.property;
     const constraints = Object.entries(error.constraints ?? {});
-    const chosen = constraints.find(([key]) => problemFor(key) === 'REQUIRED') ?? constraints[0];
+    const chosen =
+      constraints.find(([key]) => problemFor(key) === 'REQUIRED') ??
+      constraints.find(([key]) => problemFor(key) === 'INVALID') ??
+      constraints[0];
     if (chosen) {
       const [name, message] = chosen;
       result.push({ field, code: `${codeSubject(field)}_${problemFor(name)}`, message });
