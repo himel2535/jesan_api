@@ -373,6 +373,33 @@ describe.skipIf(!hasDatabase)('voiding and correcting purchases', () => {
       expect(edit?.movementDate.toISOString().slice(0, 10)).toBe(TODAY);
     });
 
+    it('previews only the lines that change on a purchase with several lines', async () => {
+      const opc = await newProduct();
+      const pcc = await newProduct();
+      const purchase = await buy([
+        { productId: opc, quantity: '500', unitPrice: '570' },
+        { productId: pcc, quantity: '200', unitPrice: '545.50' },
+      ]);
+      const created = await requestChange('manager', {
+        entityType: 'purchase',
+        entityId: purchase.id,
+        kind: 'edit',
+        reason: 'Challan says 490',
+        proposedChange: { [`items.${purchase.items[0]?.id ?? ''}.quantity`]: '490' },
+      }).expect(201);
+      const impact = (created.body as RequestBody).impact ?? [];
+      expect(impact.filter((line) => line.key.startsWith('stock.'))).toEqual([
+        expect.objectContaining({ key: `stock.${opc}`, before: '500', after: '490', delta: '-10' }),
+      ]);
+      expect(impact.find((line) => line.key === 'purchase.totalAmount')).toMatchObject({
+        before: '394100.00',
+        after: '388400.00',
+      });
+      await decide('owner', (created.body as RequestBody).id, 'approve').expect(200);
+      expect((await product(opc)).stock).toBe('490');
+      expect((await product(pcc)).stock).toBe('200');
+    });
+
     it('moves the bags to the new month when the date changes month', async () => {
       const opc = await newProduct();
       const purchase = await buy([{ productId: opc, quantity: '60', unitPrice: '570' }]);

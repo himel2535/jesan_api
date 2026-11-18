@@ -285,7 +285,8 @@ export class PurchaseChangeHandler implements ChangeHandler {
 
     // Stock per product.
     for (const line of state.lines) {
-      const delta = (next.quantities.get(line.id) ?? ZERO).sub(line.quantity);
+      // Unchanged lines keep their quantity (a void sets every line to zero).
+      const delta = (next.quantities.get(line.id) ?? line.quantity).sub(line.quantity);
       if (delta.isZero()) continue;
       const before = stock.get(line.productId) ?? ZERO;
       lines.push({
