@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AccessModule } from './core/access/access.module';
+import { ApprovalsModule } from './core/approvals/approvals.module';
 import { AuditModule } from './core/audit/audit.module';
 import { AuthModule } from './core/auth/auth.module';
 import { JwtAuthGuard } from './core/auth/jwt-auth.guard';
@@ -24,6 +25,7 @@ import { DealershipModule } from './modules/dealership/dealership.module';
     PermissionsModule,
     AuthModule,
     AccessModule,
+    ApprovalsModule,
     HealthModule,
     DealershipModule,
   ],
