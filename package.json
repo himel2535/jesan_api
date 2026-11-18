@@ -28,7 +28,8 @@
     "stock:check": "node prisma/stock-check.mjs",
     "db:check": "prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
     "admin:create": "node prisma/admin-create.mjs",
-    "db:seed:dev": "node prisma/seed-dev.mjs"
+    "db:seed:dev": "node prisma/seed-dev.mjs",
+    "db:seed:perf": "node prisma/seed-perf.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.5.0",

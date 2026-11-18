@@ -41,7 +41,9 @@ const listSelect = {
   // Same business by the composite foreign key; one query, no N+1.
   supplier: { select: { id: true, code: true, nameEn: true, nameBn: true } },
   creator: { select: { id: true, name: true } },
-  _count: { select: { items: true } },
+  // No _count here: Prisma would group every purchase line of the business
+  // before the page is cut (measured: ~100 ms at 200,000 lines). The line
+  // counts of the page come from one groupBy over its ten ids instead.
 } satisfies Prisma.PurchaseSelect;
 
 const detailSelect = {
@@ -77,14 +79,14 @@ export function fitsUnit(quantity: Prisma.Decimal, decimals: number): boolean {
   return quantity.greaterThan(0) && quantity.decimalPlaces() <= decimals;
 }
 
-function listItem(row: ListRow) {
+function listItem(row: ListRow, itemCount: number) {
   return {
     id: row.id,
     code: row.code,
     purchaseDate: fromDbDate(row.purchaseDate),
     supplier: row.supplier,
     paymentMethod: row.paymentMethod,
-    itemCount: row._count.items,
+    itemCount,
     totalQuantity: quantityString(row.totalQuantity),
     totalAmount: moneyString(row.totalAmount),
     status: row.status,
@@ -96,7 +98,7 @@ function listItem(row: ListRow) {
 
 function detail(row: DetailRow) {
   return {
-    ...listItem(row),
+    ...listItem(row, row.items.length),
     note: row.note,
     version: row.version,
     items: row.items.map((item) => ({
@@ -342,7 +344,20 @@ export class PurchasesService {
       }),
       db.purchase.count({ where }),
     ]);
-    return { items: rows.map(listItem), page: query.page, pageSize: PAGE_SIZE, total };
+    const counts = rows.length
+      ? await db.purchaseItem.groupBy({
+          by: ['purchaseId'],
+          where: { purchaseId: { in: rows.map((row) => row.id) } },
+          _count: { _all: true },
+        })
+      : [];
+    const countOf = new Map(counts.map((row) => [row.purchaseId, row._count._all]));
+    return {
+      items: rows.map((row) => listItem(row, countOf.get(row.id) ?? 0)),
+      page: query.page,
+      pageSize: PAGE_SIZE,
+      total,
+    };
   }
 
   async get(access: BusinessAccess, id: string) {
