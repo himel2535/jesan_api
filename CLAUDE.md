@@ -51,6 +51,15 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 - অনুমতি বা রোল বদলালে `AccessResolver`-এর cache মোছো (`invalidateBusiness` / `invalidateUser`) এবং `audit_logs`-এ লেখো।
 - API-র কোনো endpoint, request, response, ত্রুটি বা অনুমতি বদলালে একই PR-এ `docs/API.md` হালনাগাদ করো (frontend এটার উপর নির্ভর করে)।
 
+## ত্রুটির code (`src/core/errors`)
+
+- প্রতিটা ত্রুটি core-এর সাহায্যকারী দিয়ে: `badRequest` / `conflict` / `notFoundError` / `forbidden` / `unauthorized` (`code`, `message`, ঘরের হলে `field`)। Nest-এর exception সরাসরি নয়; স্থির code ছাড়া নতুন ত্রুটি নয়।
+- code `UPPER_SNAKE`, রূপ `<বিষয়>_<সমস্যা>` (যেমন `PHONE_DUPLICATE`, `CATEGORY_NOT_FOUND_OR_INACTIVE`, `STALE_REQUEST`)। সমস্যার শব্দ এই তালিকা থেকে: `REQUIRED`, `INVALID`, `TOO_SHORT`, `TOO_LONG`, `TOO_SMALL`, `TOO_LARGE`, `NOT_ALLOWED`, `DUPLICATE`, `NOT_FOUND`, `UNKNOWN`, `INACTIVE`, `FORBIDDEN`, `ALREADY_<অবস্থা>`, `EXISTS`, `UNSUPPORTED`। বিষয় ঘরের নাম হলে `camelCase` থেকে `UPPER_SNAKE` (`codeSubject`)।
+- `field` = request-এর key (ভেতরের ঘর dot দিয়ে, header-এর নাম হুবহু)। একটা ঘরের ত্রুটিতেই শুধু `field`।
+- একবার প্রকাশ হওয়া code কখনো বদলানো, সরানো বা অন্য অর্থে ব্যবহার নয়; বার্তা বদলানো যায়।
+- code, field বা বার্তায় ব্যক্তিগত তথ্য (ফোন, ইমেইল), অন্য রেকর্ডের id/নাম বা অন্য ব্যবসার ইঙ্গিত নয়। অন্য ব্যবসার id আর না-থাকা id-তে একই code ও বার্তা।
+- নতুন code যোগ হলে একই PR-এ `docs/API.md`-র ত্রুটির তালিকায় code, status, field ও "কখন আসে" লেখো, আর টেস্টে code (ও field) যাচাই করো।
+
 
 ## ব্যবসা-ডেটা (business data)
 

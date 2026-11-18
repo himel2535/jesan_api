@@ -18,6 +18,8 @@
 - `permissions/`: অনুমতির নিবন্ধন (`PermissionRegistry`), গার্ড (`BusinessAccessGuard`, `PermissionGuard`), `@RequirePermission`, `AccessResolver` (cache সহ), এবং সার্ভারে ফিল্ড লুকানোর ব্যবস্থা (`@VisibleWith`, `@SerializeWith`)।
 - `access/`: Settings API: রোলের অনুমতি, ইউজার তৈরি ও ব্যবস্থাপনা।
 - `audit/`: শুধু-যোগ-হয় audit log।
+- `approvals/`: সংশোধন ও বাতিলের অনুরোধ (maker-checker), handler registry।
+- `errors/`: ত্রুটির স্থির `code` ও `field` (সাহায্যকারী, validation pipe, global filter)।
 
 Core টেবিল (`prisma/schema.prisma`): `businesses`, `users`, `roles`, `user_business_access`, `permissions`, `role_permissions`, `sessions`, `audit_logs`।
 
