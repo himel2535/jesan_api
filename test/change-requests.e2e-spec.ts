@@ -289,13 +289,30 @@ describe.skipIf(!hasDatabase)('change requests (maker-checker)', () => {
       await decide('owner2', own, 'approve').expect(200);
     });
 
-    it('allows only one pending request per record', async () => {
-      const product = await newCustomer();
-      await requestChange('manager', limitRequest(product.id, '561')).expect(201);
-      const second = await requestChange('salesman', deactivateRequest(product.id)).expect(409);
+    it('allows only one pending request per record, naming it only to those who may open it', async () => {
+      const customer = await newCustomer();
+      const first = (await requestChange('manager', limitRequest(customer.id, '561')).expect(201))
+        .body as RequestBody;
+
+      // Someone else's request, without change.view.all: no id.
+      const second = await requestChange('salesman', deactivateRequest(customer.id)).expect(409);
       expect(second.body).toMatchObject({
+        code: 'CHANGE_REQUEST_PENDING_EXISTS',
         message: 'This record already has a pending change request',
       });
+      expect(second.body).not.toHaveProperty('changeRequestId');
+      expect(JSON.stringify(second.body)).not.toContain(first.id);
+
+      // Their own request: the id, so the app can open it.
+      const own = await requestChange('manager', limitRequest(customer.id, '562')).expect(409);
+      expect(own.body).toMatchObject({
+        code: 'CHANGE_REQUEST_PENDING_EXISTS',
+        changeRequestId: first.id,
+      });
+
+      // change.view.all sees everyone's requests, so gets the id too.
+      const owner = await requestChange('owner', limitRequest(customer.id, '563')).expect(409);
+      expect((owner.body as { changeRequestId?: string }).changeRequestId).toBe(first.id);
     });
 
     it('refuses an empty, unknown, unchanged or invalid change, and a void of master data', async () => {
