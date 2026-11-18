@@ -124,12 +124,6 @@ export class CreateProductDto {
   @IsString()
   @MaxLength(16)
   unitKey?: string;
-
-  /** Needs product.cost.view. Defaults to "0". */
-  @IsOptional()
-  @IsString()
-  @Matches(MONEY_PATTERN, { message: `purchasePrice ${MONEY_MESSAGE}` })
-  purchasePrice?: string;
 }
 
 export class UpdateProductDto extends WithReason {
@@ -155,11 +149,6 @@ export class UpdateProductDto extends WithReason {
   @IsString()
   @MaxLength(16)
   unitKey?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(MONEY_PATTERN, { message: `purchasePrice ${MONEY_MESSAGE}` })
-  purchasePrice?: string;
 
   @IsOptional()
   @IsBoolean()

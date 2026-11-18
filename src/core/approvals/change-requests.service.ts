@@ -1,5 +1,5 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
-import { badRequest, conflict, forbidden, notFoundError } from '../errors';
+import { ConflictException, ForbiddenException, HttpStatus, Injectable } from '@nestjs/common';
+import { badRequest, conflict, errorBody, forbidden, notFoundError } from '../errors';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { BusinessAccess } from '../common/request-context';
@@ -178,10 +178,7 @@ export class ChangeRequestsService {
         }
       }
       if (isUniqueViolation(error, 'one_pending') || isUniqueViolation(error, 'entity_id')) {
-        throw conflict(
-          'CHANGE_REQUEST_PENDING_EXISTS',
-          'This record already has a pending change request',
-        );
+        throw await this.pendingExists(access, handler.entityType, dto.entityId, actor);
       }
       throw error;
     }
@@ -611,10 +608,41 @@ export class ChangeRequestsService {
     };
   }
 
-  private canView(access: BusinessAccess, row: DetailRow, actor: Actor): boolean {
+  private canView(
+    access: BusinessAccess,
+    row: Pick<DetailRow, 'requestedBy'>,
+    actor: Actor,
+  ): boolean {
     return (
       access.permissions.has('change.view.all') ||
       (row.requestedBy === actor.userId && access.permissions.has('change.view.own'))
+    );
+  }
+
+  /**
+   * The 409 for a second pending request. It names the pending request
+   * (`changeRequestId`) only to someone allowed to open it: their own, or
+   * anyone's with change.view.all. Others learn only that one exists.
+   */
+  private async pendingExists(
+    access: BusinessAccess,
+    entityType: string,
+    entityId: string,
+    actor: Actor,
+  ) {
+    const pending = await this.prisma.forBusiness(access.businessId).changeRequest.findFirst({
+      where: { entityType, entityId, status: 'pending' },
+      select: { id: true, requestedBy: true },
+    });
+    const body = errorBody(
+      HttpStatus.CONFLICT,
+      'CHANGE_REQUEST_PENDING_EXISTS',
+      'This record already has a pending change request',
+    );
+    return new ConflictException(
+      pending && this.canView(access, pending, actor)
+        ? { ...body, changeRequestId: pending.id }
+        : body,
     );
   }
 

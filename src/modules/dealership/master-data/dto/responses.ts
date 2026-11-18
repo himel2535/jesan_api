@@ -46,7 +46,9 @@ export class ProductResponse {
   @Expose() nameEn!: string;
   @Expose() nameBn!: string;
   @Expose() unitKey!: string;
-  @VisibleWith('product.cost.view') purchasePrice!: string;
+  /** Rate of the latest valid purchase, or null before the first purchase. */
+  @VisibleWith('product.cost.view') lastPurchasePrice!: string | null;
+  @VisibleWith('product.cost.view') lastPurchasedAt!: string | null;
   @Expose() isActive!: boolean;
   @Expose() createdAt!: string;
   @Expose() updatedAt!: string;

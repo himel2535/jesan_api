@@ -11,7 +11,8 @@ interface ProductBody {
   id: string;
   code: string;
   nameEn: string;
-  purchasePrice?: string;
+  lastPurchasePrice?: string | null;
+  lastPurchasedAt?: string | null;
   isActive: boolean;
   category: { id: string; nameEn: string };
 }
@@ -62,7 +63,6 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       categoryId,
       nameEn: name,
       nameBn: `${name} বাংলা`,
-      purchasePrice: '540.00',
       ...overrides,
     });
     return response;
@@ -175,7 +175,9 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       const body = response.body as ProductBody & { unitKey: string };
       expect(body.code).toMatch(/^P-\d{4}$/);
       expect(body.unitKey).toBe('bag');
-      expect(body.purchasePrice).toBe('540.00');
+      // No purchase yet: no last purchase price.
+      expect(body).toMatchObject({ lastPurchasePrice: null, lastPurchasedAt: null });
+      expect(body).not.toHaveProperty('purchasePrice');
       expect(body).not.toHaveProperty('defaultSalePrice');
       expect(body.category.nameEn).toBe('OPC');
     });
@@ -185,20 +187,47 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       const detail = await get(t.server, path(`products/${created.id}`), who('salesman')).expect(
         200,
       );
-      expect(detail.body).not.toHaveProperty('purchasePrice');
+      expect(detail.body).not.toHaveProperty('lastPurchasePrice');
+      expect(detail.body).not.toHaveProperty('lastPurchasedAt');
       expect((detail.body as ProductBody).nameEn).toBe('Hidden Cost');
+
+      // As a confirmed purchase will set it (Step 5a): straight in the database.
+      const purchasedAt = new Date('2026-11-18T09:30:00.000Z');
+      await t.prisma.forBusiness(shop.id).product.update({
+        where: { id: created.id },
+        data: { lastPurchasePrice: '545.5', lastPurchasedAt: purchasedAt },
+      });
       const list = await get(t.server, path('products?search=Hidden'), who('salesman')).expect(200);
-      expect((list.body as PageBody<ProductBody>).items[0]).not.toHaveProperty('purchasePrice');
+      const item = (list.body as PageBody<ProductBody>).items[0];
+      expect(item).not.toHaveProperty('lastPurchasePrice');
+      expect(item).not.toHaveProperty('lastPurchasedAt');
+      expect(JSON.stringify(list.body)).not.toContain('545');
       const forManager = await get(t.server, path(`products/${created.id}`), who('manager')).expect(
         200,
       );
-      expect((forManager.body as ProductBody).purchasePrice).toBe('540.00');
+      expect(forManager.body).toMatchObject({
+        lastPurchasePrice: '545.50',
+        lastPurchasedAt: purchasedAt.toISOString(),
+      });
+    });
+
+    it('no longer has a permission to edit product prices', async () => {
+      const matrix = await get(t.server, path('roles/permissions'), who('owner')).expect(200);
+      const keys = (matrix.body as { permissions: { key: string }[] }).permissions.map(
+        (permission) => permission.key,
+      );
+      expect(keys).toContain('product.cost.view');
+      expect(keys).not.toContain('product.price.edit');
+      const grants = await t.prisma.client.rolePermission.count({
+        where: { permissionKey: 'product.price.edit' },
+      });
+      expect(grants).toBe(0);
     });
 
     it('validates the input', async () => {
-      await createProduct('Bad Price', { purchasePrice: 560 }).expect(400); // money must be a string
-      await createProduct('Bad Price 2', { purchasePrice: '-5' }).expect(400);
-      await createProduct('Bad Price 3', { purchasePrice: '1.234' }).expect(400);
+      // The last purchase price is set by purchases only, never typed in.
+      await createProduct('Typed Cost', { purchasePrice: '540' }).expect(400);
+      await createProduct('Typed Cost 2', { lastPurchasePrice: '540' }).expect(400);
       // Products have no sale price: it is set on each invoice.
       await createProduct('Sale Price', { defaultSalePrice: '560' }).expect(400);
       await createProduct('Bad Unit', { unitKey: 'ton' }).expect(400);
@@ -206,21 +235,21 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
       await createProduct('sample opc 50KG').expect(409); // same name in another case
     });
 
-    it('lets plain edits through for the manager but keeps prices and deactivation for the owner level', async () => {
+    it('lets plain edits through for the manager but keeps deactivation for the owner level', async () => {
       const product = (await createProduct('Editable').expect(201)).body as ProductBody;
       const patch = (who_: string, body: object) =>
         send(t.server, 'patch', path(`products/${product.id}`), who(who_), body);
 
       await patch('manager', { nameEn: 'Editable Renamed' }).expect(200);
-      await patch('manager', { purchasePrice: '545', reason: 'new rate' }).expect(403);
       await patch('manager', { isActive: false, reason: 'gone' }).expect(403);
-      await patch('ownerRole', { purchasePrice: '545' }).expect(400); // reason missing
+      await patch('ownerRole', { isActive: false }).expect(400); // reason missing
+      await patch('owner', { purchasePrice: '545', reason: 'new cost' }).expect(400); // no price here
       await patch('salesman', { nameEn: 'Nope' }).expect(403);
 
-      const priced = await patch('owner', { purchasePrice: '545', reason: 'new cost' }).expect(200);
-      expect((priced.body as ProductBody).purchasePrice).toBe('545.00');
+      const deactivated = await patch('owner', { isActive: false, reason: 'not sold' }).expect(200);
+      expect((deactivated.body as ProductBody).isActive).toBe(false);
       // Sending the same value again is not a change and needs no permission.
-      await patch('manager', { purchasePrice: '545.00', nameEn: 'Editable Again' }).expect(200);
+      await patch('manager', { isActive: false, nameEn: 'Editable Again' }).expect(200);
       await patch('manager', {}).expect(400);
 
       const audit = await t.prisma.client.auditLog.findFirstOrThrow({
@@ -229,8 +258,8 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
         skip: 1,
       });
       expect(audit.changes).toMatchObject({
-        purchasePrice: { before: '540.00', after: '545.00' },
-        reason: 'new cost',
+        isActive: { before: true, after: false },
+        reason: 'not sold',
       });
     });
 
@@ -483,7 +512,6 @@ describe.skipIf(!hasDatabase)('dealership master data API', () => {
         categoryId: category,
         nameEn: 'Rod 10mm',
         nameBn: 'রড ১০ মিমি',
-        purchasePrice: '90000',
       }).expect(201);
       expect(rod.body).toMatchObject({ code: 'R-0001', unitKey: 'ton' });
       await send(t.server, 'post', path('products', rods.slug), who('owner'), {
