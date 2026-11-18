@@ -188,8 +188,19 @@ export class TestData {
     await db.session.deleteMany({ where: { userId: { in: userIds } } });
     // Business data is removed with raw SQL on purpose: the Prisma client refuses
     // business-data queries that are not limited to one business.
+    // The stock ledger is append-only: only a purge inside a transaction may delete.
+    await db.$transaction([
+      db.$executeRawUnsafe(`SET LOCAL jesan.allow_purge = 'on'`),
+      db.$executeRawUnsafe(
+        'DELETE FROM stock_movements WHERE business_id = ANY($1::uuid[])',
+        businessIds,
+      ),
+    ]);
     for (const table of [
       'change_requests',
+      'purchase_items',
+      'purchases',
+      'monthly_purchase_counters',
       'products',
       'product_categories',
       'customers',

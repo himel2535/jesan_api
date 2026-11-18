@@ -9,12 +9,25 @@ describe('parseDealershipConfig', () => {
         { key: 'ton', nameEn: 'Ton', nameBn: 'টন', decimals: 3 },
       ],
       defaultUnit: 'ton',
-      codePrefixes: { product: 'RD', customer: 'RC', supplier: 'RS' },
+      codePrefixes: { product: 'RD', customer: 'RC', supplier: 'RS', purchase: 'RP' },
+      timezone: 'Asia/Kolkata',
+      backdateLimitDays: 3,
+      stockAdjustmentLimit: 25,
       principalSupplier: { nameEn: 'Rod Maker', nameBn: 'রড প্রস্তুতকারক' },
     });
     expect(config.units.map((unit) => unit.key)).toEqual(['kg', 'ton']);
     expect(config.defaultUnitKey).toBe('ton');
-    expect(config.codePrefixes).toEqual({ product: 'RD', customer: 'RC', supplier: 'RS' });
+    expect(config.codePrefixes).toEqual({
+      product: 'RD',
+      customer: 'RC',
+      supplier: 'RS',
+      purchase: 'RP',
+    });
+    expect(config).toMatchObject({
+      timezone: 'Asia/Kolkata',
+      backdateLimitDays: 3,
+      stockAdjustmentLimit: 25,
+    });
     expect(config.principalSupplier).toEqual({ nameEn: 'Rod Maker', nameBn: 'রড প্রস্তুতকারক' });
   });
 
@@ -31,10 +44,23 @@ describe('parseDealershipConfig', () => {
       units: [{ key: 'Bad Key' }, 'nonsense'],
       defaultUnit: 'nope',
       codePrefixes: { product: 'p-1', customer: '' },
+      timezone: 'Mars/Olympus',
+      backdateLimitDays: -1,
+      stockAdjustmentLimit: 2.5,
     });
     expect(config.units.map((unit) => unit.key)).toEqual(['unit']);
     expect(config.defaultUnitKey).toBe('unit');
-    expect(config.codePrefixes).toEqual({ product: 'P', customer: 'C', supplier: 'S' });
+    expect(config.codePrefixes).toEqual({
+      product: 'P',
+      customer: 'C',
+      supplier: 'S',
+      purchase: 'PUR',
+    });
+    expect(config).toMatchObject({
+      timezone: 'Asia/Dhaka',
+      backdateLimitDays: 7,
+      stockAdjustmentLimit: 10,
+    });
     expect(config.principalSupplier).toBeNull();
     expect(parseDealershipConfig(null).units).toHaveLength(1);
   });
