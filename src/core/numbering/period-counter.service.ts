@@ -25,11 +25,25 @@ export class PeriodCounterService {
       return;
     }
     const amount = delta.toString();
+    const table_ = Prisma.raw(`"${table}"`);
+    if (delta.isNegative()) {
+      // Taking away needs an existing row. (An upsert would fail here: the
+      // CHECK on quantity is evaluated on the proposed insert row first.)
+      const changed = await tx.$executeRaw`
+        UPDATE ${table_} SET quantity = quantity + ${amount}::numeric, updated_at = now()
+        WHERE business_id = ${businessId}::uuid AND period = ${period}`;
+      if (changed !== 1) {
+        throw new Error(
+          `PeriodCounterService: nothing to subtract from ${table} ${String(period)}`,
+        );
+      }
+      return;
+    }
     await tx.$executeRaw`
-      INSERT INTO ${Prisma.raw(`"${table}"`)} (business_id, period, quantity, updated_at)
+      INSERT INTO ${table_} (business_id, period, quantity, updated_at)
       VALUES (${businessId}::uuid, ${period}, ${amount}::numeric, now())
       ON CONFLICT (business_id, period)
-      DO UPDATE SET quantity = ${Prisma.raw(`"${table}"`)}.quantity + EXCLUDED.quantity,
+      DO UPDATE SET quantity = ${table_}.quantity + EXCLUDED.quantity,
                     updated_at = now()`;
   }
 }
