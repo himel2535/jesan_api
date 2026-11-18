@@ -220,6 +220,9 @@ export class CustomersService {
         const updated = await tx.customer.update({
           where: { id },
           data: {
+            // Every change bumps the version, so pending change requests go stale.
+            version: { increment: 1 },
+            updatedBy: actor.userId,
             nameEn: dto.nameEn,
             nameBn: emptyToNull(dto.nameBn),
             phone,

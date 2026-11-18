@@ -189,6 +189,7 @@ export class TestData {
     // Business data is removed with raw SQL on purpose: the Prisma client refuses
     // business-data queries that are not limited to one business.
     for (const table of [
+      'change_requests',
       'products',
       'product_categories',
       'customers',
