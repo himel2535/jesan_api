@@ -729,7 +729,7 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 { "isActive": false, "reason": "Akij stopped this product" }
 ```
 
-ত্রুটি: একই নাম 409 `NAME_EN_DUPLICATE` (`nameEn`); অজানা বা নিষ্ক্রিয় ক্যাটাগরি 400 `CATEGORY_NOT_FOUND_OR_INACTIVE` (`categoryId`); settings-এ নেই এমন একক 400 `UNIT_UNKNOWN` (`unitKey`); টাকা সংখ্যা হিসেবে পাঠালে 400 `PURCHASE_PRICE_INVALID`; কারণ ছাড়া দাম বা অবস্থা বদলে 400 `REASON_REQUIRED` (`reason`)।
+ত্রুটি: একই নাম 409 `NAME_EN_DUPLICATE` (`nameEn`); অজানা বা নিষ্ক্রিয় ক্যাটাগরি 400 `CATEGORY_NOT_FOUND_OR_INACTIVE` (`categoryId`); settings-এ নেই এমন একক 400 `UNIT_UNKNOWN` (`unitKey`); কেনা-দাম পাঠালে 400 `PURCHASE_PRICE_NOT_ALLOWED` / `LAST_PURCHASE_PRICE_NOT_ALLOWED`; কারণ ছাড়া দাম বা অবস্থা বদলে 400 `REASON_REQUIRED` (`reason`)।
 
 ### গ্রাহক
 
@@ -890,11 +890,11 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 
 ```json
 {
-  "entityType": "product",
-  "entityId": "01a1ed61-301a-75e8-a675-1fc7defd7876",
+  "entityType": "customer",
+  "entityId": "01a1ee9e-f6cb-7897-8c69-51ef7576e6fa",
   "kind": "edit",
-  "reason": "Akij changed the rate from today",
-  "proposedChange": { "purchasePrice": "545", "isActive": false }
+  "reason": "The shop asked for more credit",
+  "proposedChange": { "creditLimit": "60000", "isActive": false }
 }
 ```
 
@@ -904,29 +904,43 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 
 ```json
 {
-  "id": "01a1ed61-41df-702d-9558-ca7cc56f02e7",
-  "entityType": "product",
-  "entityId": "01a1ed61-301a-75e8-a675-1fc7defd7876",
-  "entityLabel": "P-0001 Sample OPC 50kg",
+  "id": "01a1ee9f-0cae-76c1-aa41-a7ed1a50efab",
+  "entityType": "customer",
+  "entityId": "01a1ee9e-f6cb-7897-8c69-51ef7576e6fa",
+  "entityLabel": "C-00002 Sample Store Two",
   "kind": "edit",
-  "summary": "Active: true → false; Purchase price: 540.00 → 545.00",
+  "summary": "Active: true → false; Credit limit: 50000.00 → 60000.00",
   "status": "pending",
-  "requestedBy": { "id": "01a1ed61-40e3-71f7-b8f9-67299cfb0785", "name": "Rahim Uddin" },
-  "requestedAt": "2026-11-18T06:38:56.479Z",
+  "requestedBy": { "id": "01a1ee9f-0b67-723a-909d-d9eb0f5afd1c", "name": "Rahim Uddin" },
+  "requestedAt": "2026-11-18T12:26:03.310Z",
   "decidedBy": null,
   "decidedAt": null,
-  "reason": "Akij changed the rate from today",
-  "snapshot": { "isActive": true, "purchasePrice": "540.00" },
-  "proposedChange": { "isActive": false, "purchasePrice": "545.00" },
+  "reason": "The shop asked for more credit",
+  "snapshot": { "isActive": true, "creditLimit": "50000.00" },
+  "proposedChange": { "isActive": false, "creditLimit": "60000.00" },
   "impact": [
-    { "key": "product.isActive", "label": "Active", "before": true, "after": false, "note": "While inactive it cannot be chosen for new entries; existing records stay." },
-    { "key": "product.purchasePrice", "label": "Purchase price", "before": "540.00", "after": "545.00" }
+    { "key": "customer.isActive", "label": "Active", "before": true, "after": false, "note": "While inactive it cannot be chosen for new entries; existing records stay." },
+    { "key": "customer.creditLimit", "label": "Credit limit", "before": "50000.00", "after": "60000.00" }
   ],
   "isStale": false,
   "decisionNote": null,
   "appliedAt": null
 }
 ```
+
+**একই রেকর্ডে আগেই অপেক্ষমাণ অনুরোধ থাকলে** 409 `CHANGE_REQUEST_PENDING_EXISTS`। অনুরোধকারী সেই অনুরোধ খুলতে পারলে (নিজের অনুরোধ, অথবা `change.view.all` আছে) উত্তরে তার `changeRequestId` থাকে, যাতে app সরাসরি সেটা খুলতে পারে:
+
+```json
+{
+  "statusCode": 409,
+  "error": "Conflict",
+  "message": "This record already has a pending change request",
+  "code": "CHANGE_REQUEST_PENDING_EXISTS",
+  "changeRequestId": "01a1ee9f-0cae-76c1-aa41-a7ed1a50efab"
+}
+```
+
+অন্য কারো অনুরোধ আর `change.view.all` নেই হলে একই উত্তর, শুধু `changeRequestId` ছাড়া।
 
 ### `GET mine?status=&page=` ও `GET ?status=&entityType=&entityId=&requestedBy=&from=&to=&page=`
 
@@ -936,15 +950,15 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 {
   "items": [
     {
-      "id": "01a1ed61-41df-702d-9558-ca7cc56f02e7",
-      "entityType": "product",
-      "entityId": "01a1ed61-301a-75e8-a675-1fc7defd7876",
-      "entityLabel": "P-0001 Sample OPC 50kg",
+      "id": "01a1ee9f-0cae-76c1-aa41-a7ed1a50efab",
+      "entityType": "customer",
+      "entityId": "01a1ee9e-f6cb-7897-8c69-51ef7576e6fa",
+      "entityLabel": "C-00002 Sample Store Two",
       "kind": "edit",
-      "summary": "Active: true → false; Purchase price: 540.00 → 545.00",
+      "summary": "Active: true → false; Credit limit: 50000.00 → 60000.00",
       "status": "pending",
-      "requestedBy": { "id": "01a1ed61-40e3-71f7-b8f9-67299cfb0785", "name": "Rahim Uddin" },
-      "requestedAt": "2026-11-18T06:38:56.479Z",
+      "requestedBy": { "id": "01a1ee9f-0b67-723a-909d-d9eb0f5afd1c", "name": "Rahim Uddin" },
+      "requestedAt": "2026-11-18T12:26:03.310Z",
       "decidedBy": null,
       "decidedAt": null
     }
@@ -955,7 +969,7 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 }
 ```
 
-`summary` দর্শক অনুযায়ী তৈরি হয়: যে ফিল্ড দেখার অনুমতি নেই, তার মান থাকে না, শুধু `"Purchase price changed"`। বাতিলের অনুরোধে সারাংশ হলো handler-এর বাতিলের লেবেল (Step 5-এ যেমন বিক্রি বাতিল)।
+`summary` দর্শক অনুযায়ী তৈরি হয়: যে ফিল্ড দেখার অনুমতি নেই, তার মান থাকে না, শুধু `"Credit limit changed"`। বাতিলের অনুরোধে সারাংশ হলো handler-এর বাতিলের লেবেল (Step 5-এ যেমন বিক্রি বাতিল)।
 
 ### `GET pending-count`
 
@@ -971,7 +985,7 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 
 ### `POST :id/approve`
 
-অনুমতি: `change.approve` + প্রতিটা ফিল্ডের সরাসরি-অনুমতি (বাতিলে সংশ্লিষ্ট `*.void`); নিজের নয়। body ঐচ্ছিক: `{ "note": "Confirmed with Akij" }`। উত্তর 200, বিস্তারিত রূপ, যেমন `"status": "approved"`, `"decidedBy": { "id": "...", "name": "Jesan Owner" }`, `"appliedAt": "2026-11-18T06:38:56.640Z"`, `"impact": null`।
+অনুমতি: `change.approve` + প্রতিটা ফিল্ডের সরাসরি-অনুমতি (বাতিলে সংশ্লিষ্ট `*.void`); নিজের নয়। body ঐচ্ছিক: `{ "note": "Checked their payments" }`। উত্তর 200, বিস্তারিত রূপ, যেমন `"status": "approved"`, `"decidedBy": { "id": "...", "name": "Jesan Owner" }`, `"decisionNote": "Checked their payments"`, `"appliedAt": "2026-11-18T12:26:03.408Z"`, `"impact": null`।
 
 দুজন একসাথে অনুমোদন দিলে একজনই সফল, অন্যজন 409। প্রয়োগে কোনো ত্রুটি হলে কিছুই বদলায় না, অনুরোধ `pending` থাকে।
 
@@ -992,20 +1006,10 @@ Request: `{ "newPassword": "<new password>" }` → Response: **204**। ইউ�
 | 403 | `ACCESS_DENIED` | অনুমতি নেই, বা লুকানো ফিল্ডের অনুরোধ, বা অনুমোদনকারীর সরাসরি-অনুমতি নেই |
 | 403 | `SELF_DECISION_FORBIDDEN` | নিজের অনুরোধ অনুমোদন/প্রত্যাখ্যান |
 | 404 | `CHANGE_REQUEST_NOT_FOUND`, `RECORD_NOT_FOUND` (`entityId`) | নেই, অন্য ব্যবসার, বা দেখার অনুমতি নেই |
-| 409 | `CHANGE_REQUEST_PENDING_EXISTS` | একই রেকর্ডে আরেকটা pending |
+| 409 | `CHANGE_REQUEST_PENDING_EXISTS` | একই রেকর্ডে আরেকটা pending; দেখার অনুমতি থাকলে সাথে `changeRequestId` |
 | 409 | `CHANGE_REQUEST_ALREADY_DECIDED` | আগেই সিদ্ধান্ত হয়েছে (`message`-এ অবস্থা) |
 | 409 | `ENTITY_TYPE_UNSUPPORTED`, `CHANGE_FIELD_UNSUPPORTED` | রেকর্ডের ধরন বা ঘর আর সমর্থিত নয় |
 | 409 | `STALE_REQUEST` | stale |
-
----|---|---|
-| 400 | validation তালিকা, `Nothing to change`, `Field "name" cannot be changed by request`, `proposedChange must name at least one field`, `A void request has no proposedChange`, `This kind of record cannot be voided; deactivate it instead`, `Unknown record type: …`, টাকার ভুল রূপ | ভুল অনুরোধ |
-| 403 | `Access denied` | অনুমতি নেই, বা লুকানো ফিল্ডের অনুরোধ, বা অনুমোদনকারীর সরাসরি-অনুমতি নেই |
-| 403 | `You cannot decide your own change request` | নিজের অনুরোধ অনুমোদন/প্রত্যাখ্যান |
-| 404 | `Change request not found`, `Record not found` | নেই, অন্য ব্যবসার, বা দেখার অনুমতি নেই |
-| 409 | `This record already has a pending change request` | একই রেকর্ডে আরেকটা pending |
-| 409 | `This change request is already approved` (`rejected`, `cancelled`, `stale`) | আগেই সিদ্ধান্ত হয়েছে |
-| 409 | `This kind of record can no longer be changed here` | রেকর্ডের ধরন আর সমর্থিত নয় (module সরানো হয়েছে) |
-| 409 | `The record changed after this request was made; the request is now stale` | stale |
 
 ---
 
@@ -1071,12 +1075,12 @@ form-এর কাঠামোর ত্রুটি (`message` আগের ম
 | সমস্যা | কখন আসে | উদাহরণ |
 |---|---|---|
 | `REQUIRED` | ঘরটা বাধ্যতামূলক কিন্তু খালি বা নেই | `NAME_EN_REQUIRED`, `REASON_REQUIRED`, `NOTE_REQUIRED` |
-| `INVALID` | ধরন বা রূপ ভুল (সংখ্যার জায়গায় লেখা, টাকা `"570.50"` রূপে নয়, ভুল uuid, তালিকার বাইরের মান) | `PHONE_INVALID`, `PURCHASE_PRICE_INVALID`, `CATEGORY_ID_INVALID`, `KIND_INVALID` |
+| `INVALID` | ধরন বা রূপ ভুল (সংখ্যার জায়গায় লেখা, টাকা `"570.50"` রূপে নয়, ভুল uuid, তালিকার বাইরের মান) | `PHONE_INVALID`, `CREDIT_LIMIT_INVALID`, `CATEGORY_ID_INVALID`, `KIND_INVALID` |
 | `TOO_SHORT` | নির্দিষ্ট অক্ষরের চেয়ে ছোট | `REASON_TOO_SHORT` (৩), `NOTE_TOO_SHORT` (৩) |
 | `TOO_LONG` | নির্দিষ্ট অক্ষরের চেয়ে বড় | `NAME_EN_TOO_LONG` (১২০), `REASON_TOO_LONG` (৫০০) |
 | `TOO_SMALL` | সংখ্যা সর্বনিম্নের নিচে | `PAGE_TOO_SMALL` |
 | `TOO_LARGE` | সংখ্যা সর্বোচ্চের উপরে | `SORT_ORDER_TOO_LARGE` (১০০০০) |
-| `NOT_ALLOWED` | এই endpoint এই ঘর নেয় না | `DEFAULT_SALE_PRICE_NOT_ALLOWED` (পণ্যে বিক্রয়মূল্য নেই) |
+| `NOT_ALLOWED` | এই endpoint এই ঘর নেয় না | `DEFAULT_SALE_PRICE_NOT_ALLOWED` (পণ্যে বিক্রয়মূল্য নেই), `PURCHASE_PRICE_NOT_ALLOWED` / `LAST_PURCHASE_PRICE_NOT_ALLOWED` (কেনা-দাম শুধু কেনা থেকে) |
 
 query string-এর ভুলও (`?page=0`) একই রূপে আসে, `field` হলো query-র নাম।
 
@@ -1132,11 +1136,11 @@ query string-এর ভুলও (`?page=0`) একই রূপে আসে, `
 | `PROPOSED_CHANGE_EMPTY` | 400 | `proposedChange` | বদলের অনুরোধে কোনো ঘর নেই |
 | `PROPOSED_CHANGE_NOT_ALLOWED` | 400 | `proposedChange` | বাতিলের অনুরোধে প্রস্তাবিত মান পাঠানো হয়েছে |
 | `FIELD_NOT_CHANGEABLE` | 400 | `proposedChange.<ঘর>` | এই ঘর অনুরোধে বদলানো যায় না (সরাসরি সম্পাদনা করুন) |
-| `<ঘর>_INVALID` | 400 | `proposedChange.<ঘর>` | প্রস্তাবিত মানের রূপ ভুল: `PURCHASE_PRICE_INVALID`, `OPENING_BALANCE_INVALID`, `CREDIT_LIMIT_INVALID`, `IS_ACTIVE_INVALID` |
+| `<ঘর>_INVALID` | 400 | `proposedChange.<ঘর>` | প্রস্তাবিত মানের রূপ ভুল: `OPENING_BALANCE_INVALID`, `CREDIT_LIMIT_INVALID`, `IS_ACTIVE_INVALID` |
 | `IDEMPOTENCY_KEY_INVALID` | 400 | `Idempotency-Key` | header ৮–৬৪ অক্ষরের অক্ষর, সংখ্যা, `-` বা `_` নয় |
 | `RECORD_NOT_FOUND` | 404 | `entityId` | যে রেকর্ডের অনুরোধ, তা নেই (বা অন্য ব্যবসার) |
 | `CHANGE_REQUEST_NOT_FOUND` | 404 | - | অনুরোধ নেই, অন্য ব্যবসার, বা দেখার অনুমতি নেই |
-| `CHANGE_REQUEST_PENDING_EXISTS` | 409 | - | এই রেকর্ডে আগেই একটা অপেক্ষমাণ অনুরোধ আছে |
+| `CHANGE_REQUEST_PENDING_EXISTS` | 409 | - | এই রেকর্ডে আগেই একটা অপেক্ষমাণ অনুরোধ আছে; অনুরোধকারী সেটা খুলতে পারলে (নিজের, বা `change.view.all`) উত্তরে `changeRequestId` |
 | `CHANGE_REQUEST_ALREADY_DECIDED` | 409 | - | অনুরোধ আর অপেক্ষমাণ নয় (অনুমোদিত, প্রত্যাখ্যাত, তুলে নেওয়া বা stale) |
 | `SELF_DECISION_FORBIDDEN` | 403 | - | নিজের অনুরোধ নিজে অনুমোদন বা প্রত্যাখ্যান |
 | `STALE_REQUEST` | 409 | - | অনুরোধের পরে রেকর্ড বদলেছে; অনুরোধ এখন stale, নতুন করে করতে হবে |
