@@ -33,9 +33,7 @@ try {
   }
   await client.query('BEGIN');
   // Any user can own the rows' created_by; perf data needs one.
-  const actor = await client.query(
-    `SELECT id FROM users ORDER BY created_at LIMIT 1`,
-  );
+  const actor = await client.query(`SELECT id FROM users ORDER BY created_at LIMIT 1`);
   if (!actor.rowCount) {
     throw new Error('Create a user first (npm run admin:create) so rows have a creator.');
   }
@@ -70,8 +68,11 @@ try {
        FROM generate_series(1, ${PRODUCTS}) g`,
     [bid],
   );
-  await client.query(`CREATE TEMP TABLE perf_products ON COMMIT DROP AS
-    SELECT id, row_number() OVER (ORDER BY code) AS n FROM products WHERE business_id = $1`, [bid]);
+  await client.query(
+    `CREATE TEMP TABLE perf_products ON COMMIT DROP AS
+    SELECT id, row_number() OVER (ORDER BY code) AS n FROM products WHERE business_id = $1`,
+    [bid],
+  );
 
   // Purchases spread over ~3 years, two lines each.
   await step(
@@ -111,7 +112,8 @@ try {
 
   // Movements: one per purchase line, then +1/-1 adjustments to reach the total.
   const adjustments = MOVEMENTS - PURCHASES * 2;
-  await client.query(`CREATE TEMP TABLE perf_moves ON COMMIT DROP AS
+  await client.query(
+    `CREATE TEMP TABLE perf_moves ON COMMIT DROP AS
     SELECT i.product_id, 'purchase'::text AS kind, i.quantity, i.purchase_date AS movement_date,
            'purchase'::text AS source_type, i.purchase_id AS source_id, NULL::text AS reason,
            i.created_at
@@ -121,7 +123,9 @@ try {
            date '2024-01-01' + (g * 1000 / ${adjustments}), 'adjustment', NULL, 'perf adjustment',
            timestamp '2024-01-01' + g * interval '90 seconds' + interval '1 second'
       FROM generate_series(1, ${adjustments}) g
-      JOIN perf_products pp ON pp.n = ((g + 1) / 2 % ${PRODUCTS}) + 1`, [bid]);
+      JOIN perf_products pp ON pp.n = ((g + 1) / 2 % ${PRODUCTS}) + 1`,
+    [bid],
+  );
   await step(
     'stock movements',
     `INSERT INTO stock_movements (id, business_id, product_id, kind, quantity, balance_after,
