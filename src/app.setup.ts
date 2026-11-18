@@ -1,9 +1,10 @@
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { INestApplication, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { EnvironmentVariables, parseCorsOrigins } from './core/config/env.validation';
+import { AppExceptionFilter, AppValidationPipe } from './core/errors';
 
 /**
  * Global HTTP configuration, shared by main.ts and the e2e tests so that
@@ -23,8 +24,10 @@ export function configureApp(app: INestApplication): void {
   app.setGlobalPrefix('api');
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    new AppValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
   );
+  // Adds a stable `code` to every error response (see src/core/errors).
+  app.useGlobalFilters(new AppExceptionFilter());
   app.enableCors({
     origin: parseCorsOrigins(config.get('CORS_ORIGIN', { infer: true })),
     // Needed so the browser sends the sign-in cookies on cross-origin requests.

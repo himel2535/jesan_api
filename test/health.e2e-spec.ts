@@ -94,7 +94,11 @@ describe('health endpoints', () => {
         await createApp({ isConfigured: true, isReachable: () => Promise.resolve(false) })
       ).getHttpServer();
       const response = await request(server).get('/api/v1/health/ready').expect(503);
-      expect(response.body).toEqual({ status: 'error', database: 'down' });
+      expect(response.body).toEqual({
+        status: 'error',
+        database: 'down',
+        code: 'SERVICE_UNAVAILABLE',
+      });
     });
 
     it.skipIf(!hasDatabase)('returns 200 up against the real database', async () => {

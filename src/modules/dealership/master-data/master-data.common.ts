@@ -1,11 +1,7 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import { BusinessAccess } from '../../../core/common/request-context';
+import { badRequest, codeSubject, conflict, notFoundError } from '../../../core/errors';
 
 export const PAGE_SIZE = 10;
 
@@ -35,25 +31,35 @@ export function activeFilter(active: 'true' | 'false' | 'all'): { isActive?: boo
 /** A change with financial weight must say why. */
 export function requireReason(reason: string | undefined): string {
   if (!reason) {
-    throw new BadRequestException('A reason is required for this change');
+    throw badRequest('REASON_REQUIRED', 'A reason is required for this change', 'reason');
   }
   return reason;
 }
 
 export function notFound(what: string): never {
-  throw new NotFoundException(`${what} not found`);
+  throw notFoundError(`${codeSubject(what)}_NOT_FOUND`, `${what} not found`);
 }
 
-/** Turns a unique-constraint violation into a 409 with a useful message. */
-export function rethrowUnique(error: unknown, messages: Record<string, string>): never {
+export interface DuplicateRule {
+  code: string;
+  field: string;
+  message: string;
+}
+
+/**
+ * Turns a unique-constraint violation into a 409 with a stable code and the
+ * field at fault, keyed by a hint found in the constraint (column name).
+ * Never says anything about the record that already exists.
+ */
+export function rethrowUnique(error: unknown, rules: Record<string, DuplicateRule>): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     const detail = JSON.stringify(error.meta ?? {}) + error.message;
-    for (const [hint, message] of Object.entries(messages)) {
+    for (const [hint, rule] of Object.entries(rules)) {
       if (detail.includes(hint)) {
-        throw new ConflictException(message);
+        throw conflict(rule.code, rule.message, rule.field);
       }
     }
-    throw new ConflictException('This record already exists');
+    throw conflict('RECORD_DUPLICATE', 'This record already exists');
   }
   throw error;
 }

@@ -1,9 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { badRequest, conflict, notFoundError } from '../errors';
 import { Prisma } from '../../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { normalizeEmail, normalizePhone, parseLoginIdentifier } from '../auth/identifier';
@@ -76,7 +72,10 @@ export class AccessAdminService {
     actor: ActorInfo,
   ) {
     if (roleKey === OWNER_ROLE_KEY) {
-      throw new BadRequestException('The owner role always has every non-owner-only permission');
+      throw badRequest(
+        'OWNER_ROLE_FIXED',
+        'The owner role always has every non-owner-only permission',
+      );
     }
     const wanted = [...new Set(requested)];
     for (const key of wanted) {
@@ -85,17 +84,21 @@ export class AccessAdminService {
         permission !== undefined &&
         (permission.businessType === undefined || permission.businessType === access.businessType);
       if (!permission || !applies) {
-        throw new BadRequestException(`Unknown permission: ${key}`);
+        throw badRequest('PERMISSION_UNKNOWN', `Unknown permission: ${key}`, 'permissions');
       }
       if (permission.ownerOnly) {
-        throw new BadRequestException(`"${key}" is owner-only and cannot be given to a role`);
+        throw badRequest(
+          'PERMISSION_OWNER_ONLY',
+          `"${key}" is owner-only and cannot be given to a role`,
+          'permissions',
+        );
       }
     }
 
     const db = this.prisma.client;
     const role = await db.role.findUnique({ where: { key: roleKey }, select: { id: true } });
     if (!role) {
-      throw new NotFoundException('Unknown role');
+      throw notFoundError('ROLE_NOT_FOUND', 'Unknown role');
     }
 
     const changes = await db.$transaction(async (tx) => {
@@ -219,7 +222,7 @@ export class AccessAdminService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw notFoundError('USER_NOT_FOUND', 'User not found');
     }
     const membership = user.access[0];
     return {
@@ -237,10 +240,10 @@ export class AccessAdminService {
     const email = dto.email ? normalizeEmail(dto.email) : null;
     const phone = dto.phone ? normalizePhone(dto.phone) : null;
     if (dto.phone && !phone) {
-      throw new BadRequestException('Phone number is not valid');
+      throw badRequest('PHONE_INVALID', 'Phone number is not valid', 'phone');
     }
     if (!email && !phone) {
-      throw new BadRequestException('An email or a phone number is required');
+      throw badRequest('EMAIL_OR_PHONE_REQUIRED', 'An email or a phone number is required');
     }
     this.passwords.assertAcceptable(dto.password, { email, phone });
     const role = await this.requireRole(dto.roleKey);
@@ -278,7 +281,8 @@ export class AccessAdminService {
       return { id: user.id, role: role.key };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException(
+        throw conflict(
+          'USER_ALREADY_EXISTS',
           'A user with this email or phone already exists; grant them access instead',
         );
       }
@@ -347,7 +351,7 @@ export class AccessAdminService {
     actor: ActorInfo,
   ): Promise<void> {
     if (userId === actor.userId) {
-      throw new BadRequestException('You cannot change your own status');
+      throw badRequest('OWN_STATUS_CHANGE_FORBIDDEN', 'You cannot change your own status');
     }
     await this.requireManageableUser(userId, access);
     await this.prisma.client.$transaction(async (tx) => {
@@ -379,7 +383,7 @@ export class AccessAdminService {
     actor: ActorInfo,
   ): Promise<void> {
     const target = await this.requireManageableUser(userId, access);
-    this.passwords.assertAcceptable(newPassword, target);
+    this.passwords.assertAcceptable(newPassword, target, 'newPassword');
     const passwordHash = await this.passwords.hash(newPassword);
 
     await this.prisma.client.$transaction(async (tx) => {
@@ -413,7 +417,7 @@ export class AccessAdminService {
       select: { id: true, key: true },
     });
     if (!role) {
-      throw new BadRequestException('Unknown role');
+      throw badRequest('ROLE_NOT_FOUND', 'Unknown role', 'roleKey');
     }
     return role;
   }
@@ -437,13 +441,16 @@ export class AccessAdminService {
         : Promise.resolve({ id: 'not-checked' }),
     ]);
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw notFoundError('USER_NOT_FOUND', 'User not found');
     }
     if (user.isPlatformOwner) {
-      throw new BadRequestException('Platform owner accounts cannot be changed here');
+      throw badRequest(
+        'PLATFORM_OWNER_PROTECTED',
+        'Platform owner accounts cannot be changed here',
+      );
     }
     if (!membership) {
-      throw new NotFoundException('User not found');
+      throw notFoundError('USER_NOT_FOUND', 'User not found');
     }
     return user;
   }

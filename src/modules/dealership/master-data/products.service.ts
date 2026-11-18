@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
 import { AuditService } from '../../../core/audit/audit.service';
 import { moneyString, toDecimal } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
+import { badRequest } from '../../../core/errors';
 import { PrismaService } from '../../../core/database/prisma.service';
 import {
   DocumentCounterService,
@@ -41,7 +42,16 @@ const select = {
 
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof select }>;
 
-const DUPLICATE = { name_en: 'A product with this name already exists' };
+const DUPLICATE = {
+  name_en: {
+    code: 'NAME_EN_DUPLICATE',
+    field: 'nameEn',
+    message: 'A product with this name already exists',
+  },
+};
+
+const categoryUnavailable = () =>
+  badRequest('CATEGORY_NOT_FOUND_OR_INACTIVE', 'Category not found or inactive', 'categoryId');
 
 function toResponse(row: ProductRow) {
   return {
@@ -115,11 +125,11 @@ export class ProductsService {
       }),
     ]);
     if (!category?.isActive) {
-      throw new BadRequestException('Category not found or inactive');
+      throw categoryUnavailable();
     }
     const unitKey = dto.unitKey ?? config.defaultUnitKey;
     if (!config.units.some((unit) => unit.key === unitKey)) {
-      throw new BadRequestException(`Unknown unit: ${unitKey}`);
+      throw badRequest('UNIT_UNKNOWN', `Unknown unit: ${unitKey}`, 'unitKey');
     }
 
     try {
@@ -186,7 +196,7 @@ export class ProductsService {
       },
     );
     if (Object.keys(changes).length === 0) {
-      throw new BadRequestException('Nothing to change');
+      throw badRequest('NOTHING_TO_CHANGE', 'Nothing to change');
     }
 
     let reason: string | undefined;
@@ -205,13 +215,13 @@ export class ProductsService {
         select: { isActive: true },
       });
       if (!category?.isActive) {
-        throw new BadRequestException('Category not found or inactive');
+        throw categoryUnavailable();
       }
     }
     if ('unitKey' in changes) {
       const config = await this.context.config(access.businessId);
       if (!config.units.some((unit) => unit.key === dto.unitKey)) {
-        throw new BadRequestException(`Unknown unit: ${dto.unitKey ?? ''}`);
+        throw badRequest('UNIT_UNKNOWN', `Unknown unit: ${dto.unitKey ?? ''}`, 'unitKey');
       }
     }
 

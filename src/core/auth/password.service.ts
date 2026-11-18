@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { badRequest } from '../errors';
 import { hash, verify } from '@node-rs/argon2';
 import { randomBytes } from 'node:crypto';
 
@@ -36,22 +37,37 @@ export class PasswordService {
     await this.verify(await this.dummyHash, password);
   }
 
-  /** Length rules plus: the password must not be the user's own email or phone. */
-  assertAcceptable(password: string, personal: { email?: string | null; phone?: string | null }) {
+  /**
+   * Length rules plus: the password must not be the user's own email or phone.
+   * `field` is the request key the password came in (for the error).
+   */
+  assertAcceptable(
+    password: string,
+    personal: { email?: string | null; phone?: string | null },
+    field = 'password',
+  ) {
     if (password.length < PASSWORD_MIN_LENGTH) {
-      throw new BadRequestException(
+      throw badRequest(
+        'PASSWORD_TOO_SHORT',
         `Password must be at least ${String(PASSWORD_MIN_LENGTH)} characters`,
+        field,
       );
     }
     if (password.length > PASSWORD_MAX_LENGTH) {
-      throw new BadRequestException(
+      throw badRequest(
+        'PASSWORD_TOO_LONG',
         `Password must be at most ${String(PASSWORD_MAX_LENGTH)} characters`,
+        field,
       );
     }
     const lowered = password.toLowerCase();
     const own = [personal.email, personal.phone].filter((value): value is string => !!value);
     if (own.some((value) => value.toLowerCase() === lowered)) {
-      throw new BadRequestException('Password must not be your email or phone number');
+      throw badRequest(
+        'PASSWORD_MATCHES_IDENTITY',
+        'Password must not be your email or phone number',
+        field,
+      );
     }
   }
 }

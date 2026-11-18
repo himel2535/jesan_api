@@ -5,15 +5,14 @@ import {
   Headers,
   HttpCode,
   Param,
-  ParseUUIDPipe,
   Post,
   Query,
   Req,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { AppRequest, AuthContext, BusinessAccess } from '../common/request-context';
+import { badRequest, ParseIdPipe } from '../errors';
 import { CurrentAccess, CurrentAuth } from '../permissions/current.decorators';
 import { AnyBusinessMember, RequirePermission } from '../permissions/decorators';
 import { Actor, ChangeRequestsService } from './change-requests.service';
@@ -48,7 +47,11 @@ export class ChangeRequestsController {
     @Res({ passthrough: true }) response: Response,
   ) {
     if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY.test(idempotencyKey)) {
-      throw new BadRequestException('Idempotency-Key must be 8-64 letters, digits, - or _');
+      throw badRequest(
+        'IDEMPOTENCY_KEY_INVALID',
+        'Idempotency-Key must be 8-64 letters, digits, - or _',
+        'Idempotency-Key',
+      );
     }
     const result = await this.requests.create(access, body, actorOf(auth, request), idempotencyKey);
     response.status(result.created ? 201 : 200);
@@ -97,7 +100,7 @@ export class ChangeRequestsController {
   detail(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Req() request: AppRequest,
   ) {
     return this.requests.detail(access, id, actorOf(auth, request));
@@ -109,7 +112,7 @@ export class ChangeRequestsController {
   approve(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Body() body: DecisionDto,
     @Req() request: AppRequest,
   ) {
@@ -122,7 +125,7 @@ export class ChangeRequestsController {
   reject(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Body() body: RejectDto,
     @Req() request: AppRequest,
   ) {
@@ -135,7 +138,7 @@ export class ChangeRequestsController {
   cancel(
     @CurrentAccess() access: BusinessAccess,
     @CurrentAuth() auth: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id', ParseIdPipe) id: string,
     @Req() request: AppRequest,
   ) {
     return this.requests.cancel(access, id, actorOf(auth, request));

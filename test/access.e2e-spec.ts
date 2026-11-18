@@ -280,10 +280,12 @@ describe.skipIf(!hasDatabase)('Settings: users, roles and permissions', () => {
       }).expect(409);
       expect(JSON.stringify(duplicate.body)).not.toContain(staff.id);
       expect(Object.keys(duplicate.body as object).sort()).toEqual([
+        'code',
         'error',
         'message',
         'statusCode',
       ]);
+      expect((duplicate.body as { code: string }).code).toBe('USER_ALREADY_EXISTS');
     });
 
     it('grants an existing user access to another business, and changes or removes it at once', async () => {

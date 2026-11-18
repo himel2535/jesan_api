@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { forbidden } from '../errors';
 import { Request } from 'express';
 import { AuthSettings } from './auth.settings';
 
@@ -19,7 +20,7 @@ export class OriginChecker {
     }
     const origin = request.get('origin');
     if (origin !== undefined && !this.settings.allowedOrigins.includes(origin)) {
-      throw new ForbiddenException('Origin not allowed');
+      throw forbidden('ORIGIN_NOT_ALLOWED', 'Origin not allowed');
     }
   }
 }

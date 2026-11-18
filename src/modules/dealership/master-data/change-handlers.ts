@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
+import { badRequest, codeSubject } from '../../../core/errors';
 import {
   ChangeHandler,
   ChangeValues,
@@ -41,14 +41,22 @@ async function lockRow(
 function money(value: unknown, field: string, signed = false): string {
   const pattern = signed ? SIGNED_MONEY_PATTERN : MONEY_PATTERN;
   if (typeof value !== 'string' || !pattern.test(value)) {
-    throw new BadRequestException(`${field} must be an amount like "570.50" (as a string)`);
+    throw badRequest(
+      `${codeSubject(field)}_INVALID`,
+      `${field} must be an amount like "570.50" (as a string)`,
+      `proposedChange.${field}`,
+    );
   }
   return toDecimal(value).toFixed(2);
 }
 
 function flag(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') {
-    throw new BadRequestException(`${field} must be true or false`);
+    throw badRequest(
+      `${codeSubject(field)}_INVALID`,
+      `${field} must be true or false`,
+      `proposedChange.${field}`,
+    );
   }
   return value;
 }
