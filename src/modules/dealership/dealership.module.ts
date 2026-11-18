@@ -22,6 +22,10 @@ import { DealershipContext } from './master-data/master-data.context';
 import { ProductsService } from './master-data/products.service';
 import { SuppliersService } from './master-data/suppliers.service';
 import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.permissions';
+import { PurchaseChangeHandler } from './purchases/purchase-change-handler';
+import { PurchaseCountersController, PurchasesController } from './purchases/purchases.controller';
+import { PurchasesService } from './purchases/purchases.service';
+import { StockLedger } from './stock/stock-ledger';
 
 @Module({
   imports: [PermissionsModule, ApprovalsModule],
@@ -31,6 +35,8 @@ import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.p
     ProductsController,
     CustomersController,
     SuppliersController,
+    PurchasesController,
+    PurchaseCountersController,
   ],
   providers: [
     DealershipContext,
@@ -38,15 +44,24 @@ import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.p
     ProductsService,
     CustomersService,
     SuppliersService,
+    StockLedger,
+    PurchasesService,
+    PurchaseChangeHandler,
   ],
 })
 export class DealershipModule {
-  constructor(registry: PermissionRegistry, changeHandlers: ChangeHandlerRegistry) {
+  constructor(
+    registry: PermissionRegistry,
+    changeHandlers: ChangeHandlerRegistry,
+    purchaseHandler: PurchaseChangeHandler,
+  ) {
     registry.register(DEALERSHIP_PERMISSIONS);
     registerTenantModels(DEALERSHIP_TENANT_MODELS);
     // Sensitive master-data fields: staff send a change request instead.
     changeHandlers.register(productChangeHandler);
     changeHandlers.register(customerChangeHandler);
     changeHandlers.register(categoryChangeHandler);
+    // Purchases: void and correct through the same workflow (Step 5a).
+    changeHandlers.register(purchaseHandler);
   }
 }
