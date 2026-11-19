@@ -4,17 +4,17 @@ Branch: `claude/step-5b-orders-deliveries`। প্ল্যান: `docs/plans
 
 - [x] ০. প্ল্যান ফাইল
 - [x] ১. migration (orders, deliveries, collections, customer ledger, customers-এর সারাংশ কলাম, stock kind) + config + অনুমতি
-- [ ] ২. অর্ডার: তৈরি, তালিকা, বিস্তারিত + টেস্ট
-- [ ] ৩. ডেলিভারি: তৈরি (স্টক, ব্যালেন্স, খাতা, ক্রেডিট সীমা), তালিকা + টেস্ট
-- [ ] ৪. আদায় ও গ্রাহকের খাতা + টেস্ট
-- [ ] ৫. বাতিল ও সংশোধন handler (sales_order, delivery, collection) + টেস্ট
+- [x] ২. অর্ডার: তৈরি, তালিকা, বিস্তারিত + টেস্ট
+- [x] ৩. ডেলিভারি: তৈরি (স্টক, ব্যালেন্স, খাতা, ক্রেডিট সীমা), তালিকা + টেস্ট
+- [x] ৪. আদায় ও গ্রাহকের খাতা + টেস্ট
+- [x] ৫. বাতিল ও সংশোধন handler (sales_order, delivery, collection) + টেস্ট
 - [ ] ৬. consistency:check script, পারফরম্যান্স মাপ
 - [ ] ৭. docs (API.md, README, DECISIONS.md, CLAUDE.md)
 - [ ] ৮. যাচাই, PR, merge, চূড়ান্ত রিপোর্ট
 
 ## কোডের অবস্থা
 
-- ধাপ ২–৫-এর কোড লেখা হয়েছে (orders, deliveries, collections, ledger, তিনটা change handler, controller, module wiring, গ্রাহকের সারাংশ ঘর)। type-check ও lint পরিষ্কার। **নতুন e2e টেস্ট এখনো বাকি**; পরের ধাপে লেখা হবে।
+- ধাপ ২–৫-এর কোড ও টেস্ট শেষ: `test/sales.e2e-spec.ts` (১৩টা), `test/sales-changes.e2e-spec.ts` (৭টা), সংগতির সাহায্যকারী `test/sales-helpers.ts`। নতুন ডাটাবেসে পুরো suite ২৯১/২৯১ পাস।
 - প্ল্যান থেকে ছোট বদল:
   - `sales_orders`-এ `delivery_status` কলাম যোগ (pending/partial/delivered, পরিমাণের সঙ্গে CHECK-এ মেলানো), তালিকার ফিল্টার index থেকে পড়ার জন্য।
   - লকের ক্রম চূড়ান্ত: অনুরোধ → অর্ডার → ডেলিভারি/আদায় → গ্রাহক → পণ্য। ডেলিভারির সংশোধন বা বাতিলেও আগে অর্ডার লক হয়, যাতে অর্ডারের দাম-সংশোধনের সঙ্গে deadlock না হয়।
