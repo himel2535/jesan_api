@@ -47,6 +47,8 @@ model Business {
   deliveryItems     DeliveryItem[]
   collections       Collection[]
   customerLedger    CustomerLedgerEntry[]
+  expenseCategories ExpenseCategory[]
+  expenses          Expense[]
 
   @@map("businesses")
 }
@@ -75,30 +77,35 @@ model User {
   sessions  Session[]
   auditLogs AuditLog[]
 
-  createdCategories  ProductCategory[]     @relation("createdCategories")
-  createdProducts    Product[]             @relation("createdProducts")
-  createdCustomers   Customer[]            @relation("createdCustomers")
-  createdSuppliers   Supplier[]            @relation("createdSuppliers")
-  updatedCategories  ProductCategory[]     @relation("updatedCategories")
-  updatedProducts    Product[]             @relation("updatedProducts")
-  updatedCustomers   Customer[]            @relation("updatedCustomers")
-  updatedSuppliers   Supplier[]            @relation("updatedSuppliers")
-  requestedChanges   ChangeRequest[]       @relation("requestedChanges")
-  decidedChanges     ChangeRequest[]       @relation("decidedChanges")
-  createdPurchases   Purchase[]            @relation("createdPurchases")
-  updatedPurchases   Purchase[]            @relation("updatedPurchases")
-  voidedPurchases    Purchase[]            @relation("voidedPurchases")
-  createdOrders      SalesOrder[]          @relation("createdOrders")
-  updatedOrders      SalesOrder[]          @relation("updatedOrders")
-  voidedOrders       SalesOrder[]          @relation("voidedOrders")
-  createdDeliveries  Delivery[]            @relation("createdDeliveries")
-  updatedDeliveries  Delivery[]            @relation("updatedDeliveries")
-  voidedDeliveries   Delivery[]            @relation("voidedDeliveries")
-  createdCollections Collection[]          @relation("createdCollections")
-  updatedCollections Collection[]          @relation("updatedCollections")
-  voidedCollections  Collection[]          @relation("voidedCollections")
-  ledgerEntries      CustomerLedgerEntry[]
-  stockMovements     StockMovement[]
+  createdCategories        ProductCategory[]     @relation("createdCategories")
+  createdProducts          Product[]             @relation("createdProducts")
+  createdCustomers         Customer[]            @relation("createdCustomers")
+  createdSuppliers         Supplier[]            @relation("createdSuppliers")
+  updatedCategories        ProductCategory[]     @relation("updatedCategories")
+  updatedProducts          Product[]             @relation("updatedProducts")
+  updatedCustomers         Customer[]            @relation("updatedCustomers")
+  updatedSuppliers         Supplier[]            @relation("updatedSuppliers")
+  requestedChanges         ChangeRequest[]       @relation("requestedChanges")
+  decidedChanges           ChangeRequest[]       @relation("decidedChanges")
+  createdPurchases         Purchase[]            @relation("createdPurchases")
+  updatedPurchases         Purchase[]            @relation("updatedPurchases")
+  voidedPurchases          Purchase[]            @relation("voidedPurchases")
+  createdOrders            SalesOrder[]          @relation("createdOrders")
+  updatedOrders            SalesOrder[]          @relation("updatedOrders")
+  voidedOrders             SalesOrder[]          @relation("voidedOrders")
+  createdDeliveries        Delivery[]            @relation("createdDeliveries")
+  updatedDeliveries        Delivery[]            @relation("updatedDeliveries")
+  voidedDeliveries         Delivery[]            @relation("voidedDeliveries")
+  createdCollections       Collection[]          @relation("createdCollections")
+  updatedCollections       Collection[]          @relation("updatedCollections")
+  voidedCollections        Collection[]          @relation("voidedCollections")
+  createdExpenses          Expense[]             @relation("createdExpenses")
+  updatedExpenses          Expense[]             @relation("updatedExpenses")
+  voidedExpenses           Expense[]             @relation("voidedExpenses")
+  createdExpenseCategories ExpenseCategory[]     @relation("createdExpenseCategories")
+  updatedExpenseCategories ExpenseCategory[]     @relation("updatedExpenseCategories")
+  ledgerEntries            CustomerLedgerEntry[]
+  stockMovements           StockMovement[]
 
   @@map("users")
 }
@@ -520,6 +527,7 @@ model Purchase {
   @@index([businessId, purchaseDate(sort: Desc), id(sort: Desc)])
   @@index([businessId, supplierId, purchaseDate(sort: Desc)])
   @@index([businessId, status, purchaseDate(sort: Desc)])
+  @@index([businessId, status, purchaseDate, paymentMethod, totalAmount])
   @@index([createdBy])
   @@index([updatedBy])
   @@index([voidedBy])
@@ -791,6 +799,7 @@ model Collection {
   @@unique([businessId, code])
   @@unique([businessId, id])
   @@index([businessId, collectionDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, status, collectionDate, method, amount])
   @@index([businessId, customerId, collectionDate(sort: Desc)])
   @@index([businessId, orderId])
   @@index([createdBy])
@@ -825,4 +834,84 @@ model CustomerLedgerEntry {
   @@index([businessId, sourceType, sourceId])
   @@index([createdBy])
   @@map("customer_ledger_entries")
+}
+
+/// A kind of day-to-day expense (salary, rent, electricity, ...). Per business,
+/// so a new business needs no code change; the starting list comes from the
+/// business's config through the seed. Never deleted, only deactivated.
+model ExpenseCategory {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  nameEn     String   @map("name_en") @db.VarChar(80)
+  nameBn     String   @map("name_bn") @db.VarChar(80)
+  sortOrder  Int      @default(0) @map("sort_order")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdBy  String?  @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  /// Goes up on every change, so a pending change request turns stale.
+  version    Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  creator  User?     @relation("createdExpenseCategories", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?     @relation("updatedExpenseCategories", fields: [updatedBy], references: [id], onDelete: Restrict)
+  expenses Expense[]
+
+  @@unique([businessId, nameEn])
+  @@unique([businessId, nameBn])
+  @@unique([businessId, id])
+  @@index([businessId, isActive, sortOrder, id])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@map("expense_categories")
+}
+
+/// Money paid out of the business on a day: its date, kind, amount, method and
+/// notes. Staff may only add one; correcting or voiding needs the owner-level
+/// permission or an approved change request. Never deleted, only voided, so the
+/// cash book (which counts active rows only) stays right.
+model Expense {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  /// From document_counters, e.g. EXP-0001.
+  code           String    @db.VarChar(32)
+  expenseDate    DateTime  @map("expense_date") @db.Date
+  categoryId     String    @map("category_id") @db.Uuid
+  /// One of the business's expense methods (config.expenseMethods).
+  method         String    @db.VarChar(16)
+  /// Always more than zero (CHECK constraint in the migration).
+  amount         Decimal   @db.Decimal(14, 2)
+  /// What the money was for.
+  note           String?   @db.VarChar(500)
+  /// Where the proof is kept: receipt number, voucher, file and the like.
+  proofNote      String?   @map("proof_note") @db.VarChar(200)
+  status         String    @default("active") @db.VarChar(8)
+  idempotencyKey String?   @map("idempotency_key") @db.VarChar(64)
+  version        Int       @default(1)
+  createdBy      String    @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  voidedBy       String?   @map("voided_by") @db.Uuid
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidReason     String?   @map("void_reason") @db.VarChar(500)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  category ExpenseCategory @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  creator  User            @relation("createdExpenses", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?           @relation("updatedExpenses", fields: [updatedBy], references: [id], onDelete: Restrict)
+  voider   User?           @relation("voidedExpenses", fields: [voidedBy], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, code])
+  @@unique([businessId, id])
+  @@index([businessId, expenseDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, categoryId, expenseDate(sort: Desc)])
+  @@index([businessId, status, expenseDate(sort: Desc)])
+  @@index([businessId, status, expenseDate, method, amount])
+  @@index([businessId, method, expenseDate(sort: Desc)])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([voidedBy])
+  @@map("expenses")
 }

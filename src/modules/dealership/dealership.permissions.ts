@@ -22,6 +22,8 @@ export const DEALERSHIP_TENANT_MODELS = [
   'DeliveryItem',
   'Collection',
   'CustomerLedgerEntry',
+  'ExpenseCategory',
+  'Expense',
 ];
 
 /**
@@ -77,7 +79,19 @@ export const DEALERSHIP_PERMISSIONS: PermissionGroup = {
     { key: 'ledger.view', defaultRoles: ['accountant'] },
     { key: 'ledger.entry.create', defaultRoles: ['accountant'] },
     { key: 'payment.create', defaultRoles: ['accountant'] },
-    { key: 'expense.create', defaultRoles: ['accountant'] },
+    // Expenses (Step 6). A manager runs the shop day to day, so recording an
+    // expense is theirs too; correcting or voiding one is owner level by
+    // default and staff send a change request instead.
+    { key: 'expense.create', defaultRoles: ['manager', 'accountant'] },
+    { key: 'expense.view', defaultRoles: ['manager', 'accountant'] },
+    { key: 'expense.edit' },
+    { key: 'expense.void' },
+    { key: 'expense.category.manage', defaultRoles: ['manager'] },
+    // The cash book and the read-only reports (Step 6). A salesman sees only
+    // their own orders, so neither is theirs.
+    { key: 'cashbook.view', defaultRoles: ['manager', 'accountant'] },
+    { key: 'report.view', defaultRoles: ['manager', 'accountant'] },
+    // Kept for Step 7 (profit and commission reports); not used yet.
     { key: 'summary.finance.view' },
     { key: 'reports.finance.view' },
     { key: 'commission.view', ownerOnly: true },

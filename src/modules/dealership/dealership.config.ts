@@ -18,6 +18,7 @@ export interface DealershipConfig {
     order: string;
     delivery: string;
     collection: string;
+    expense: string;
   };
   principalSupplier: { nameEn: string; nameBn: string } | null;
   /** IANA time zone for business dates (purchase dates, months). */
@@ -30,6 +31,13 @@ export interface DealershipConfig {
   creditLimitMode: 'warn' | 'block';
   /** Ways a customer may pay (keys), e.g. cash, bkash, nagad, bank, cheque. */
   collectionMethods: string[];
+  /** Ways an expense may be paid (keys); defaults to the collection methods. */
+  expenseMethods: string[];
+  /**
+   * Which of those methods are physical cash. Everything else counts as bank or
+   * mobile banking in the cash book.
+   */
+  cashMethodKeys: string[];
 }
 
 const DEFAULT_TIMEZONE = 'Asia/Dhaka';
@@ -50,14 +58,16 @@ function wholeNumber(value: unknown, fallback: number, min: number, max: number)
 }
 
 export const DEFAULT_COLLECTION_METHODS = ['cash', 'bkash', 'nagad', 'bank', 'cheque'];
+/** Of the payment methods, the ones that move physical cash. */
+export const DEFAULT_CASH_METHOD_KEYS = ['cash'];
 
-function methodList(value: unknown): string[] {
+function methodList(value: unknown, fallback: readonly string[]): string[] {
   const listed = Array.isArray(value)
     ? [...new Set(value.filter((item): item is string => typeof item === 'string'))].filter(
         (item) => /^[a-z][a-z0-9_]{0,15}$/.test(item),
       )
     : [];
-  return listed.length > 0 ? listed : [...DEFAULT_COLLECTION_METHODS];
+  return listed.length > 0 ? listed : [...fallback];
 }
 
 const FALLBACK_UNIT: DealershipUnit = { key: 'unit', nameEn: 'Unit', nameBn: 'একক', decimals: 0 };
@@ -113,6 +123,8 @@ export function parseDealershipConfig(raw: unknown): DealershipConfig {
     return /^[A-Z][A-Z0-9]{0,5}$/.test(candidate) ? candidate : fallback;
   };
 
+  const collectionMethods = methodList(config['collectionMethods'], DEFAULT_COLLECTION_METHODS);
+
   const principal = record(config['principalSupplier']);
   const principalName = text(principal['nameEn'], '');
 
@@ -127,6 +139,7 @@ export function parseDealershipConfig(raw: unknown): DealershipConfig {
       order: prefix(prefixes['order'], 'ORD'),
       delivery: prefix(prefixes['delivery'], 'DEL'),
       collection: prefix(prefixes['collection'], 'COL'),
+      expense: prefix(prefixes['expense'], 'EXP'),
     },
     principalSupplier: principalName
       ? { nameEn: principalName, nameBn: text(principal['nameBn'], principalName) }
@@ -135,6 +148,8 @@ export function parseDealershipConfig(raw: unknown): DealershipConfig {
     backdateLimitDays: wholeNumber(config['backdateLimitDays'], 7, 0, 3660),
     stockAdjustmentLimit: wholeNumber(config['stockAdjustmentLimit'], 10, 0, 1_000_000),
     creditLimitMode: config['creditLimitMode'] === 'block' ? 'block' : 'warn',
-    collectionMethods: methodList(config['collectionMethods']),
+    collectionMethods,
+    expenseMethods: methodList(config['expenseMethods'], collectionMethods),
+    cashMethodKeys: methodList(config['cashMethodKeys'], DEFAULT_CASH_METHOD_KEYS),
   };
 }

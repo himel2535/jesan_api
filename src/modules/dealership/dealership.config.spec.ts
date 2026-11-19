@@ -9,9 +9,18 @@ describe('parseDealershipConfig', () => {
         { key: 'ton', nameEn: 'Ton', nameBn: 'টন', decimals: 3 },
       ],
       defaultUnit: 'ton',
-      codePrefixes: { product: 'RD', customer: 'RC', supplier: 'RS', purchase: 'RP', order: 'RO' },
+      codePrefixes: {
+        product: 'RD',
+        customer: 'RC',
+        supplier: 'RS',
+        purchase: 'RP',
+        order: 'RO',
+        expense: 'RE',
+      },
       creditLimitMode: 'block',
       collectionMethods: ['cash', 'bkash', 'Bad Key', 'cash'],
+      expenseMethods: ['cash', 'bank'],
+      cashMethodKeys: ['cash', 'petty_cash'],
       timezone: 'Asia/Kolkata',
       backdateLimitDays: 3,
       stockAdjustmentLimit: 25,
@@ -27,9 +36,12 @@ describe('parseDealershipConfig', () => {
       order: 'RO',
       delivery: 'DEL',
       collection: 'COL',
+      expense: 'RE',
     });
     expect(config.creditLimitMode).toBe('block');
     expect(config.collectionMethods).toEqual(['cash', 'bkash']);
+    expect(config.expenseMethods).toEqual(['cash', 'bank']);
+    expect(config.cashMethodKeys).toEqual(['cash', 'petty_cash']);
     expect(config).toMatchObject({
       timezone: 'Asia/Kolkata',
       backdateLimitDays: 3,
@@ -65,9 +77,13 @@ describe('parseDealershipConfig', () => {
       order: 'ORD',
       delivery: 'DEL',
       collection: 'COL',
+      expense: 'EXP',
     });
     expect(config.creditLimitMode).toBe('warn');
     expect(config.collectionMethods).toEqual(['cash', 'bkash', 'nagad', 'bank', 'cheque']);
+    // With no list of its own, expenses use the same methods as collections.
+    expect(config.expenseMethods).toEqual(['cash', 'bkash', 'nagad', 'bank', 'cheque']);
+    expect(config.cashMethodKeys).toEqual(['cash']);
     expect(config).toMatchObject({
       timezone: 'Asia/Dhaka',
       backdateLimitDays: 7,
