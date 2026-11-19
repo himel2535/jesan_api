@@ -112,4 +112,4 @@ Jesan Enterprise মাল্টি-বিজনেস ERP প্ল্যাট
 
 ## কমান্ড
 
-`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:seed:dev` · `npm run db:check` · `npm run admin:create`
+`npm run start:dev` · `npm run build` · `npm run lint` · `npm run type-check` · `npm test` · `npm run format` · `npm run db:deploy` · `npm run db:migrate` · `npm run db:seed` · `npm run db:seed:dev` · `npm run db:check` · `npm run admin:create` · `npm run consistency:check` · `npm run db:seed:perf` · `npm run db:seed:perf:sales` · `npm run db:seed:perf:expenses`

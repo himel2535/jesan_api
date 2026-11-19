@@ -10,7 +10,7 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
 - [x] ৫. ক্যাশ বই + `consistency:check` + টেস্ট
 - [x] ৬. ছয়টা রিপোর্ট + টেস্ট
 - [x] ৭. perf seed, মাপ, index যাচাই → DECISIONS.md
-- [ ] ৮. docs (API.md, adding-a-business.md, README.md, CLAUDE.md, DECISIONS.md)
+- [x] ৮. docs (API.md, adding-a-business.md, README.md, CLAUDE.md, DECISIONS.md)
 - [ ] ৯. যাচাই, PR, merge, চূড়ান্ত রিপোর্ট
 
 ## কোডের অবস্থা
@@ -56,3 +56,15 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
   ২২ ms)। summary টেবিলের দরকার হয়নি।
 - `EXPLAIN (ANALYZE, BUFFERS)`-এ ক্যাশ-বই covering index থেকে Index Only Scan
   নিশ্চিত হয়েছে। বিস্তারিত ফলাফল `DECISIONS.md`-এ।
+
+### ধাপ ৮ নোট
+- `docs/API.md`: নতুন §১৩ (খরচ, ক্যাশ বই ও মূল রিপোর্ট), §৫ endpoint তালিকায়
+  নতুন সারি, §১৪ (আগের ১৩) ত্রুটির টেবিলে নতুন group, §১৫ (আগের ১৪)
+  অনুমতির টেবিলে নতুন সারি। README.md-র পুরনো অ্যাঙ্কর (#১৩-ত্রুটির-...)
+  #১৪-তে বদলানো হয়েছে।
+- নতুন `docs/adding-a-business.md`: config-এর সব ঘর (একক, উপসর্গ, পদ্ধতি,
+  সময়-অঞ্চল, খরচের ডিফল্ট ধরন) আর একটা রড-ব্যবসার উদাহরণ, কোনো কোড বদল
+  ছাড়াই।
+- README.md-তে নতুন "খরচ, ক্যাশ বই ও রিপোর্ট" অংশ + কমান্ড টেবিলে
+  `db:seed:perf:expenses`। CLAUDE.md-র কমান্ড তালিকায় perf/consistency
+  স্ক্রিপ্ট যোগ।
