@@ -16,6 +16,7 @@ CREATE TABLE "sales_orders" (
     "delivered_quantity" DECIMAL(14,3) NOT NULL DEFAULT 0,
     "total_amount" DECIMAL(14,2) NOT NULL,
     "status" VARCHAR(8) NOT NULL DEFAULT 'active',
+    "delivery_status" VARCHAR(10) NOT NULL DEFAULT 'pending',
     "note" VARCHAR(500),
     "idempotency_key" VARCHAR(64),
     "version" INTEGER NOT NULL DEFAULT 1,
@@ -135,6 +136,9 @@ CREATE TABLE "customer_ledger_entries" (
 
 -- CreateIndex
 CREATE INDEX "sales_orders_business_id_order_date_id_idx" ON "sales_orders"("business_id", "order_date" DESC, "id" DESC);
+
+-- CreateIndex
+CREATE INDEX "sales_orders_business_id_status_delivery_status_order_date_idx" ON "sales_orders"("business_id", "status", "delivery_status", "order_date" DESC);
 
 -- CreateIndex
 CREATE INDEX "sales_orders_business_id_customer_id_order_date_idx" ON "sales_orders"("business_id", "customer_id", "order_date" DESC);
@@ -343,6 +347,13 @@ ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_deliver_by_check"
 ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_quantity_check"
   CHECK ("total_quantity" > 0 AND "delivered_quantity" >= 0 AND "delivered_quantity" <= "total_quantity" AND "total_amount" >= 0);
 ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_version_check" CHECK ("version" >= 1);
+ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_delivery_status_check" CHECK (
+  "delivery_status" = CASE
+    WHEN "delivered_quantity" = 0 THEN 'pending'
+    WHEN "delivered_quantity" = "total_quantity" THEN 'delivered'
+    ELSE 'partial'
+  END
+);
 ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_void_check" CHECK (
   ("status" = 'void') = ("voided_at" IS NOT NULL AND "voided_by" IS NOT NULL AND "void_reason" IS NOT NULL)
 );

@@ -623,6 +623,8 @@ model SalesOrder {
   totalAmount       Decimal   @map("total_amount") @db.Decimal(14, 2)
   /// active or void.
   status            String    @default("active") @db.VarChar(8)
+  /// pending (nothing delivered), partial or delivered; follows the quantities (CHECK).
+  deliveryStatus    String    @default("pending") @map("delivery_status") @db.VarChar(10)
   note              String?   @db.VarChar(500)
   idempotencyKey    String?   @map("idempotency_key") @db.VarChar(64)
   version           Int       @default(1)
@@ -646,6 +648,7 @@ model SalesOrder {
   @@unique([businessId, code])
   @@unique([businessId, id])
   @@index([businessId, orderDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, status, deliveryStatus, orderDate(sort: Desc)])
   @@index([businessId, customerId, orderDate(sort: Desc)])
   @@index([businessId, createdBy, orderDate(sort: Desc)])
   @@index([createdBy])

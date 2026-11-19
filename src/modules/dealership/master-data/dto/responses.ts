@@ -72,6 +72,11 @@ export class CustomerResponse {
   @VisibleWith('customer.due.view') openingBalance!: string;
   @VisibleWith('customer.due.view') currentBalance!: string;
   @VisibleWith('customer.due.view') creditLimit!: string | null;
+  /** Bags ordered but not yet delivered (active orders). */
+  @Expose() pendingDeliveryQuantity!: string;
+  /** Value of active deliveries and sum of active collections. */
+  @VisibleWith('customer.due.view') deliveredAmount!: string;
+  @VisibleWith('customer.due.view') collectedAmount!: string;
   @Expose() isActive!: boolean;
   @Expose() createdAt!: string;
   @Expose() updatedAt!: string;
