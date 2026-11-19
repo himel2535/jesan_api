@@ -7,6 +7,9 @@
 //   ledger sums to delivered - collected, delivered = active deliveries,
 //   collected = active collections, pending bags = active orders not delivered;
 // - each order's delivered bags = its active delivery lines.
+// - the cash book (derived, no table of its own): the total net of active
+//   collections minus active expenses minus active cash purchases equals the
+//   same total added up day by day, for every business.
 // Prints any mismatch (ids and numbers only) and exits 1 if one is found.
 // Changes nothing.
 import { connect } from './seed-helpers.mjs';
@@ -70,6 +73,49 @@ try {
                             AND i.order_item_id IN (SELECT id FROM sales_order_items s
                                                      WHERE s.business_id = o.business_id AND s.order_id = o.id)) x ON true
      WHERE o.delivered_quantity <> coalesce(x.total, 0)`);
+
+  // Cash book: it keeps no table of its own, so "consistency" means its total
+  // (every business's net of active collections, active expenses and active
+  // cash purchases) matches whether it is added up in one pass or day by day.
+  // The business's own list of cash methods (config.cashMethodKeys, default
+  // ["cash"]) decides which purchases count.
+  const cashBook = await client.query(`
+    WITH biz AS (
+      SELECT id AS business_id,
+             coalesce(
+               (SELECT array_agg(value) FROM jsonb_array_elements_text(config -> 'cashMethodKeys')),
+               ARRAY['cash']) AS cash_methods
+        FROM businesses WHERE type = 'dealership'),
+    direct AS (
+      SELECT b.business_id,
+             coalesce((SELECT sum(amount) FROM collections
+                        WHERE business_id = b.business_id AND status = 'active'), 0)
+             - coalesce((SELECT sum(amount) FROM expenses
+                          WHERE business_id = b.business_id AND status = 'active'), 0)
+             - coalesce((SELECT sum(total_amount) FROM purchases
+                          WHERE business_id = b.business_id AND status = 'active'
+                            AND payment_method = ANY (b.cash_methods)), 0) AS net
+        FROM biz b),
+    by_day AS (
+      SELECT business_id, sum(amount) AS net FROM (
+        SELECT business_id, amount FROM collections WHERE status = 'active'
+        UNION ALL
+        SELECT business_id, -amount FROM expenses WHERE status = 'active'
+        UNION ALL
+        SELECT p.business_id, -p.total_amount FROM purchases p JOIN biz b ON b.business_id = p.business_id
+         WHERE p.status = 'active' AND p.payment_method = ANY (b.cash_methods)
+      ) x GROUP BY business_id)
+    SELECT d.business_id, d.net::text AS direct_net, coalesce(g.net, 0)::text AS by_day_net
+      FROM direct d LEFT JOIN by_day g ON g.business_id = d.business_id
+     WHERE d.net <> coalesce(g.net, 0)`);
+
+  // Defensive: an active expense's kind always belongs to its own business
+  // (the composite foreign key already guarantees this; this just says so).
+  const expenseCategories = await client.query(`
+    SELECT e.business_id, e.id, e.code
+      FROM expenses e
+      LEFT JOIN expense_categories c ON c.business_id = e.business_id AND c.id = e.category_id
+     WHERE e.status = 'active' AND c.id IS NULL`);
   for (const row of customers.rows) {
     console.error(
       `customer mismatch: business ${row.business_id} customer ${row.code} (${row.id}): ` +
@@ -96,10 +142,31 @@ try {
         `counter ${row.counter}, active purchase lines ${row.purchases}`,
     );
   }
-  if (stock.rows.length || counters.rows.length || customers.rows.length || orders.rows.length) {
+  for (const row of cashBook.rows) {
+    console.error(
+      `cash book mismatch: business ${row.business_id}: ` +
+        `direct net ${row.direct_net}, day-by-day net ${row.by_day_net}`,
+    );
+  }
+  for (const row of expenseCategories.rows) {
+    console.error(
+      `expense category mismatch: business ${row.business_id} expense ${row.code} (${row.id}): ` +
+        `its kind is missing or belongs to another business`,
+    );
+  }
+  if (
+    stock.rows.length ||
+    counters.rows.length ||
+    customers.rows.length ||
+    orders.rows.length ||
+    cashBook.rows.length ||
+    expenseCategories.rows.length
+  ) {
     process.exitCode = 1;
   } else {
-    console.log('Stock, purchase counters, customer balances and orders are consistent.');
+    console.log(
+      'Stock, purchase counters, customer balances, orders, and the cash book are consistent.',
+    );
   }
 } finally {
   await client.end();

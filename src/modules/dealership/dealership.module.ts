@@ -22,6 +22,8 @@ import { DealershipContext } from './master-data/master-data.context';
 import { ProductsService } from './master-data/products.service';
 import { SuppliersService } from './master-data/suppliers.service';
 import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.permissions';
+import { CashBookController } from './cashbook/cash-book.controller';
+import { CashBookService } from './cashbook/cash-book.service';
 import { ExpenseCategoriesService } from './expenses/expense-categories.service';
 import {
   ExpenseChangeHandler,
@@ -76,6 +78,7 @@ import {
     ExpenseCategoriesController,
     ExpenseMethodsController,
     ExpensesController,
+    CashBookController,
   ],
   providers: [
     DealershipContext,
@@ -98,6 +101,7 @@ import {
     ExpenseCategoriesService,
     ExpensesService,
     ExpenseChangeHandler,
+    CashBookService,
   ],
 })
 export class DealershipModule {
