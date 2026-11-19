@@ -22,6 +22,21 @@ import { DealershipContext } from './master-data/master-data.context';
 import { ProductsService } from './master-data/products.service';
 import { SuppliersService } from './master-data/suppliers.service';
 import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.permissions';
+import { CashBookController } from './cashbook/cash-book.controller';
+import { CashBookService } from './cashbook/cash-book.service';
+import { ExpenseCategoriesService } from './expenses/expense-categories.service';
+import {
+  ExpenseChangeHandler,
+  expenseCategoryChangeHandler,
+} from './expenses/expense-change-handlers';
+import {
+  ExpenseCategoriesController,
+  ExpenseMethodsController,
+  ExpensesController,
+} from './expenses/expenses.controllers';
+import { ExpensesService } from './expenses/expenses.service';
+import { ReportsController } from './reports/reports.controller';
+import { ReportsService } from './reports/reports.service';
 import { PurchaseChangeHandler } from './purchases/purchase-change-handler';
 import { PurchaseCountersController, PurchasesController } from './purchases/purchases.controller';
 import { PurchasesService } from './purchases/purchases.service';
@@ -62,6 +77,11 @@ import {
     CollectionsController,
     CollectionMethodsController,
     CustomerLedgerController,
+    ExpenseCategoriesController,
+    ExpenseMethodsController,
+    ExpensesController,
+    CashBookController,
+    ReportsController,
   ],
   providers: [
     DealershipContext,
@@ -81,6 +101,11 @@ import {
     SalesOrderChangeHandler,
     DeliveryChangeHandler,
     CollectionChangeHandler,
+    ExpenseCategoriesService,
+    ExpensesService,
+    ExpenseChangeHandler,
+    CashBookService,
+    ReportsService,
   ],
 })
 export class DealershipModule {
@@ -92,6 +117,7 @@ export class DealershipModule {
     orderHandler: SalesOrderChangeHandler,
     deliveryHandler: DeliveryChangeHandler,
     collectionHandler: CollectionChangeHandler,
+    expenseHandler: ExpenseChangeHandler,
   ) {
     registry.register(DEALERSHIP_PERMISSIONS);
     registerTenantModels(DEALERSHIP_TENANT_MODELS);
@@ -107,5 +133,8 @@ export class DealershipModule {
     changeHandlers.register(orderHandler);
     changeHandlers.register(deliveryHandler);
     changeHandlers.register(collectionHandler);
+    // Expenses and their kinds (Step 6).
+    changeHandlers.register(expenseHandler);
+    changeHandlers.register(expenseCategoryChangeHandler);
   }
 }

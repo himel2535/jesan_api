@@ -50,3 +50,34 @@ export function prefixFor(config, kind, fallback) {
   const value = config?.codePrefixes?.[kind];
   return typeof value === 'string' && /^[A-Z][A-Z0-9]{0,5}$/.test(value) ? value : fallback;
 }
+
+/**
+ * The expense kinds a dealership starts with when its config names none. Kept
+ * business-neutral on purpose: a business that wants other kinds puts them in
+ * `config.defaultExpenseCategories`, and the owner can rename or deactivate
+ * any of them afterwards.
+ */
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  { nameEn: 'Salary', nameBn: 'বেতন' },
+  { nameEn: 'Rent', nameBn: 'ভাড়া' },
+  { nameEn: 'Electricity', nameBn: 'বিদ্যুৎ' },
+  { nameEn: 'Vehicle and fuel', nameBn: 'যানবাহন ও জ্বালানি' },
+  { nameEn: 'Hospitality', nameBn: 'আপ্যায়ন' },
+  { nameEn: 'Other', nameBn: 'অন্যান্য' },
+];
+
+/** The starting expense kinds of a business: its config's list, or the default. */
+export function expenseCategoriesFor(config) {
+  const listed = Array.isArray(config?.defaultExpenseCategories)
+    ? config.defaultExpenseCategories
+        .filter((item) => item && typeof item.nameEn === 'string' && item.nameEn.trim() !== '')
+        .map((item) => ({
+          nameEn: item.nameEn.trim(),
+          nameBn:
+            typeof item.nameBn === 'string' && item.nameBn.trim() !== ''
+              ? item.nameBn.trim()
+              : item.nameEn.trim(),
+        }))
+    : [];
+  return listed.length > 0 ? listed : DEFAULT_EXPENSE_CATEGORIES;
+}

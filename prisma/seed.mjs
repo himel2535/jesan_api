@@ -2,7 +2,14 @@
 // No users or passwords, and no sample data (that is prisma/seed-dev.mjs).
 // Idempotent: existing rows are never changed, so it is safe to run repeatedly.
 // Plain JavaScript on purpose, so it runs with `node` alone (no TypeScript runner).
-import { connect, formatCode, nextNumber, prefixFor, uuidv7 } from './seed-helpers.mjs';
+import {
+  connect,
+  expenseCategoriesFor,
+  formatCode,
+  nextNumber,
+  prefixFor,
+  uuidv7,
+} from './seed-helpers.mjs';
 
 const roles = [
   { key: 'owner', nameEn: 'Owner', nameBn: 'মালিক' },
@@ -79,6 +86,25 @@ try {
       ],
     );
     created += 1;
+  }
+
+  // Each dealership's starting expense kinds, from its config (only where the
+  // business has none, so a renamed or deactivated kind never comes back).
+  const needCategories = await client.query(
+    `SELECT b.id, b.config FROM businesses b
+     WHERE b.type = 'dealership'
+       AND NOT EXISTS (SELECT 1 FROM expense_categories c WHERE c.business_id = b.id)`,
+  );
+  for (const business of needCategories.rows) {
+    for (const [index, category] of expenseCategoriesFor(business.config).entries()) {
+      await client.query(
+        `INSERT INTO expense_categories (id, business_id, name_en, name_bn, sort_order, updated_at)
+         VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (business_id, name_en) DO NOTHING`,
+        [uuidv7(), business.id, category.nameEn, category.nameBn, index + 1],
+      );
+      created += 1;
+    }
   }
 
   await client.query('COMMIT');

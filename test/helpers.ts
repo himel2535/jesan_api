@@ -202,6 +202,8 @@ export class TestData {
     ]);
     for (const table of [
       'change_requests',
+      'expenses',
+      'expense_categories',
       'collections',
       'delivery_items',
       'deliveries',
