@@ -131,6 +131,7 @@ describe.skipIf(!hasDatabase)('purchases', () => {
   }
 
   beforeAll(async () => {
+    await runSeed(); // roles must exist before a business gets its default grants
     t = await createTestApp();
     data = new TestData(t);
     shop = await data.createBusiness('buy');

@@ -3,7 +3,7 @@
 Branch: `claude/step-5b-orders-deliveries`। প্ল্যান: `docs/plans/step-5b.md`। সেশন থামলে নতুন সেশন এখান থেকে ধরবে।
 
 - [x] ০. প্ল্যান ফাইল
-- [ ] ১. migration (orders, deliveries, collections, customer ledger, customers-এর সারাংশ কলাম, stock kind) + config + অনুমতি
+- [x] ১. migration (orders, deliveries, collections, customer ledger, customers-এর সারাংশ কলাম, stock kind) + config + অনুমতি
 - [ ] ২. অর্ডার: তৈরি, তালিকা, বিস্তারিত + টেস্ট
 - [ ] ৩. ডেলিভারি: তৈরি (স্টক, ব্যালেন্স, খাতা, ক্রেডিট সীমা), তালিকা + টেস্ট
 - [ ] ৪. আদায় ও গ্রাহকের খাতা + টেস্ট
@@ -11,3 +11,7 @@ Branch: `claude/step-5b-orders-deliveries`। প্ল্যান: `docs/plans
 - [ ] ৬. consistency:check script, পারফরম্যান্স মাপ
 - [ ] ৭. docs (API.md, README, DECISIONS.md, CLAUDE.md)
 - [ ] ৮. যাচাই, PR, merge, চূড়ান্ত রিপোর্ট
+
+## নোট
+
+- ধাপ ১-এ ধরা পড়া: Step 5a-র তিনটা টেস্ট ফাইল (`purchases`, `purchase-changes`, `stock`) প্রথম `runSeed()`-এর আগে ব্যবসা বানাত। নতুন ডাটাবেসে তখন রোল থাকে না, তাই ম্যানেজার ডিফল্ট অনুমতি পেত না। আগে অন্য ফাইল আগে seed করত বলে CI সবুজ ছিল; ফাইলের ক্রম বদলালেই ভাঙত। এখন প্রতিটা ফাইল শুরুতেই seed করে।

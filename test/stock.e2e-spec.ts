@@ -77,6 +77,7 @@ describe.skipIf(!hasDatabase)('stock', () => {
     send(t.server, 'post', path('stock/adjustments'), who(who_), { productId, quantity, reason });
 
   beforeAll(async () => {
+    await runSeed(); // roles must exist before a business gets its default grants
     t = await createTestApp();
     data = new TestData(t);
     shop = await data.createBusiness('stock');

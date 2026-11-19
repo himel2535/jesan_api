@@ -10,7 +10,15 @@ export interface DealershipUnit {
 export interface DealershipConfig {
   units: DealershipUnit[];
   defaultUnitKey: string;
-  codePrefixes: { product: string; customer: string; supplier: string; purchase: string };
+  codePrefixes: {
+    product: string;
+    customer: string;
+    supplier: string;
+    purchase: string;
+    order: string;
+    delivery: string;
+    collection: string;
+  };
   principalSupplier: { nameEn: string; nameBn: string } | null;
   /** IANA time zone for business dates (purchase dates, months). */
   timezone: string;
@@ -18,6 +26,10 @@ export interface DealershipConfig {
   backdateLimitDays: number;
   /** Per product, per user, per day: the most stock one may adjust without approval. */
   stockAdjustmentLimit: number;
+  /** Over the credit limit on delivery: 'warn' (deliver, flag it) or 'block'. */
+  creditLimitMode: 'warn' | 'block';
+  /** Ways a customer may pay (keys), e.g. cash, bkash, nagad, bank, cheque. */
+  collectionMethods: string[];
 }
 
 const DEFAULT_TIMEZONE = 'Asia/Dhaka';
@@ -35,6 +47,17 @@ function wholeNumber(value: unknown, fallback: number, min: number, max: number)
   return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
     ? value
     : fallback;
+}
+
+export const DEFAULT_COLLECTION_METHODS = ['cash', 'bkash', 'nagad', 'bank', 'cheque'];
+
+function methodList(value: unknown): string[] {
+  const listed = Array.isArray(value)
+    ? [...new Set(value.filter((item): item is string => typeof item === 'string'))].filter(
+        (item) => /^[a-z][a-z0-9_]{0,15}$/.test(item),
+      )
+    : [];
+  return listed.length > 0 ? listed : [...DEFAULT_COLLECTION_METHODS];
 }
 
 const FALLBACK_UNIT: DealershipUnit = { key: 'unit', nameEn: 'Unit', nameBn: 'একক', decimals: 0 };
@@ -101,6 +124,9 @@ export function parseDealershipConfig(raw: unknown): DealershipConfig {
       customer: prefix(prefixes['customer'], 'C'),
       supplier: prefix(prefixes['supplier'], 'S'),
       purchase: prefix(prefixes['purchase'], 'PUR'),
+      order: prefix(prefixes['order'], 'ORD'),
+      delivery: prefix(prefixes['delivery'], 'DEL'),
+      collection: prefix(prefixes['collection'], 'COL'),
     },
     principalSupplier: principalName
       ? { nameEn: principalName, nameBn: text(principal['nameBn'], principalName) }
@@ -108,5 +134,7 @@ export function parseDealershipConfig(raw: unknown): DealershipConfig {
     timezone: validTimezone(text(config['timezone'], DEFAULT_TIMEZONE)),
     backdateLimitDays: wholeNumber(config['backdateLimitDays'], 7, 0, 3660),
     stockAdjustmentLimit: wholeNumber(config['stockAdjustmentLimit'], 10, 0, 1_000_000),
+    creditLimitMode: config['creditLimitMode'] === 'block' ? 'block' : 'warn',
+    collectionMethods: methodList(config['collectionMethods']),
   };
 }
