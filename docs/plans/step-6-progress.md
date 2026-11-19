@@ -9,7 +9,7 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
 - [x] ৪. `ExpenseChangeHandler`: সংশোধন ও বাতিল + টেস্ট
 - [x] ৫. ক্যাশ বই + `consistency:check` + টেস্ট
 - [x] ৬. ছয়টা রিপোর্ট + টেস্ট
-- [ ] ৭. perf seed, মাপ, index যাচাই → DECISIONS.md
+- [x] ৭. perf seed, মাপ, index যাচাই → DECISIONS.md
 - [ ] ৮. docs (API.md, adding-a-business.md, README.md, CLAUDE.md, DECISIONS.md)
 - [ ] ৯. যাচাই, PR, merge, চূড়ান্ত রিপোর্ট
 
@@ -47,3 +47,12 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
   findMany দিয়ে নাম/ক্যাটাগরি জোড়া — লুপে query নয় (`Promise.all`)।
 - বয়স-ভাগ: প্রতি গ্রাহকের নিজের `customer_ledger_entries` (business+customer
   index থেকে) দিয়ে FIFO; শুধু পাতার ১০ গ্রাহকের জন্য, পুরো টেবিলে নয়।
+
+### ধাপ ৭ নোট
+- নতুন `prisma/seed-perf-expenses.mjs` (+ `npm run db:seed:perf:expenses`,
+  `PERF_SLUG` env দিয়ে কোন ব্যবসায় বসবে বেছে নেওয়া যায়): ৫০,০০০ খরচ, ~৩ বছর
+  জুড়ে। `perf-sales` আর `perf-dealer` দুটোতেই চালানো হয়েছে।
+- সব পড়া ২০০ms-এর অনেক নিচে (সর্বোচ্চ ১০১ ms); সেভ ৫০০ms-এর নিচে (সর্বোচ্চ
+  ২২ ms)। summary টেবিলের দরকার হয়নি।
+- `EXPLAIN (ANALYZE, BUFFERS)`-এ ক্যাশ-বই covering index থেকে Index Only Scan
+  নিশ্চিত হয়েছে। বিস্তারিত ফলাফল `DECISIONS.md`-এ।

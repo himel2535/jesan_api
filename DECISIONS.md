@@ -524,3 +524,49 @@ Passport নেওয়া হয়নি: গার্ড নিজে লে
 - সবই লক্ষ্যের (পড়া ২০০ ms, সেভ ৫০০ ms) অনেক নিচে।
 - পুরো তালিকায় সময়ের বড় অংশ ১ লাখ সারির `count(*)` (~২০ ms)। ফিল্টার করা তালিকা index থেকে ৫ ms-এর নিচে।
 - মাপার পরে `npm run consistency:check` আবার পাস করেছে।
+
+## ২০২৬-১১-১৯: খরচ, ক্যাশ বই ও মূল রিপোর্ট (Step 6, স্বয়ংক্রিয় মোড)
+
+Branch `claude/step-6-expenses-cashbook-reports`; প্ল্যান `docs/plans/step-6.md`।
+
+### টেবিল ও নিয়ম
+
+- **`expense_categories`**: ব্যবসা-ভিত্তিক, নাম অদ্বিতীয়, মোছা নয় শুধু নিষ্ক্রিয় (কারণ বাধ্যতামূলক)। ডিফল্ট তালিকা `businesses.config.defaultExpenseCategories`, না থাকলে `seed-helpers.mjs`-এর নিরপেক্ষ fallback (বেতন/ভাড়া/বিদ্যুৎ/যানবাহন ও জ্বালানি/আপ্যায়ন/অন্যান্য)।
+- **`expenses`**: টাকা `Decimal(14,2)` CHECK `> 0`, কোড `DocumentCounterService` থেকে (`EXP-0001`), `status` active|void। কর্মী নিজে সম্পাদনা/বাতিল করতে পারে না — `ExpenseChangeHandler` দিয়ে মালিকের সরাসরি বদল বা কর্মীর অনুরোধ→অনুমোদন। বাতিলে উল্টো এন্ট্রি লাগে না, কারণ ক্যাশ বই derived বলে `status='active'` ফিল্টারই reversal।
+- **ক্যাশ বই কোনো টেবিল নয়**: `GET cash-book` আসল `collections`/`expenses`/`purchases` সারি থেকে `groupBy`/`aggregate`-এ গোনা (active সারি মাত্র, কেনার টাকা শুধু `config.cashMethodKeys`-এর পদ্ধতিতে)। `consistency:check`-এ প্রতি ব্যবসার মোট সরাসরি যোগফল বনাম দিনভিত্তিক যোগফলে মেলানো।
+- ছয়টা রিপোর্ট (`reports/sales`, `collections`, `dues`, `stock`, `stock-movements`, `expenses`, `daily-summary`) সব শুধু-পড়া, `report.view`; কোনোটায় কেনা-দাম/লাভ/কমিশন নেই।
+
+### অনুমতি
+
+নতুন: `expense.view`, `expense.edit`, `expense.void`, `expense.category.manage`, `cashbook.view`, `report.view`। `expense.create`-এ manager যোগ (আগে accountant-ই ছিল)। পুরনো ব্যবসায় `PermissionSyncService.grantDefaults` নতুন key-তেই ডিফল্ট বসায়, manager-কে `expense.create` আগে থেকে না থাকা ব্যবসায় মালিককে Settings থেকে নিজে দিতে হবে — আপনাআপনি যাবে না।
+
+### স্বয়ংক্রিয় সিদ্ধান্ত (মালিকের অনুপস্থিতিতে, `docs/plans/step-6.md` অংশ ১১-এ কারণসহ)
+
+সবচেয়ে গুরুত্বপূর্ণ: ক্যাশ বই derived (দ্বিতীয় সত্য নয়); খরচের ধরন আসল টেবিল (FK ও নিষ্ক্রিয়করণের জন্য); বাকির বয়স-ভাগ FIFO, শুধু পাতার ১০ গ্রাহকে; রিপোর্টে সর্বোচ্চ ৪০০ দিনের তারিখ-সীমা; `report.view` নতুন key, `reports.finance.view` (Step 7-এর জন্য সংরক্ষিত) ছোঁয়া হয়নি।
+
+### পারফরম্যান্স মাপ (ক্লাউড কন্টেইনার, PostgreSQL 16, `npm run db:seed:perf:sales` + `db:seed:perf:expenses`)
+
+ডেটা: `perf-sales` ব্যবসা — ২,০০০ গ্রাহক, ১,০০,০০০ অর্ডার/ডেলিভারি/আদায়, ৫০,০০০ খরচ, ~৪০০ দিনের তারিখ-সীমা (সর্বোচ্চ অনুমোদিত)। চালু API-তে, ৩ বার গরম করে ৭ বার মাপা।
+
+| অনুরোধ | median | সর্বোচ্চ |
+|---|---|---|
+| ক্যাশ বই, ৪০০ দিন | 42 ms | 49 ms |
+| বিক্রয় রিপোর্ট, তারিখ ধরে | 41 ms | 47 ms |
+| বিক্রয় রিপোর্ট, গ্রাহক ধরে | 47 ms | 59 ms |
+| বিক্রয় রিপোর্ট, পণ্য ধরে | 76 ms | 81 ms |
+| বিক্রয় রিপোর্ট, ক্যাটাগরি ধরে | 56 ms | 101 ms |
+| আদায় রিপোর্ট, তারিখ ধরে | 32 ms | 42 ms |
+| আদায় রিপোর্ট, পদ্ধতি ধরে | 33 ms | 48 ms |
+| স্টক-চলন রিপোর্ট, ৪০০ দিন | 22 ms | 28 ms |
+| খরচ রিপোর্ট, ধরন ধরে | 19 ms | 21 ms |
+| খরচ রিপোর্ট, মাস ধরে | 17 ms | 18 ms |
+| বাকির তালিকা (২০০০ গ্রাহক, বয়স-ভাগ FIFO) | 21 ms | 23 ms |
+| স্টক রিপোর্ট | 10 ms | 12 ms |
+| খরচের তালিকা, পাতা ১ | 17 ms | 19 ms |
+| দৈনিক সারাংশ | 39 ms | 51 ms |
+| খরচ সেভ | 19 ms | 22 ms |
+
+- সবই লক্ষ্যের (পড়া ২০০ ms, সেভ ৫০০ ms) অনেক নিচে; summary টেবিলের দরকার হয়নি।
+- `EXPLAIN (ANALYZE, BUFFERS)`-এ আদায়ের groupBy ক্যাশ-বই covering index থেকে **Index Only Scan**, ০.৬ ms execution — ডিজাইন অনুযায়ী কাজ করছে।
+- বিক্রয়-পণ্য/ক্যাটাগরি রিপোর্ট তুলনামূলক ধীর (৭৬-১০১ ms) কারণ `delivery_items` থেকে প্রথমে productId ধরে `groupBy`, তারপর products/categories আলাদা `findMany`; তবু লক্ষ্যের অনেক নিচে, আর তালিকায় `_count` ব্যবহার করা হয়নি।
+- `npm run consistency:check` perf ডাটাবেসে সবুজ (ক্যাশ-বইয়ের নতুন পরীক্ষাসহ)।
