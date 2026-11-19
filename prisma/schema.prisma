@@ -41,6 +41,12 @@ model Business {
   purchaseItems     PurchaseItem[]
   stockMovements    StockMovement[]
   purchaseCounters  MonthlyPurchaseCounter[]
+  salesOrders       SalesOrder[]
+  salesOrderItems   SalesOrderItem[]
+  deliveries        Delivery[]
+  deliveryItems     DeliveryItem[]
+  collections       Collection[]
+  customerLedger    CustomerLedgerEntry[]
 
   @@map("businesses")
 }
@@ -69,20 +75,30 @@ model User {
   sessions  Session[]
   auditLogs AuditLog[]
 
-  createdCategories ProductCategory[] @relation("createdCategories")
-  createdProducts   Product[]         @relation("createdProducts")
-  createdCustomers  Customer[]        @relation("createdCustomers")
-  createdSuppliers  Supplier[]        @relation("createdSuppliers")
-  updatedCategories ProductCategory[] @relation("updatedCategories")
-  updatedProducts   Product[]         @relation("updatedProducts")
-  updatedCustomers  Customer[]        @relation("updatedCustomers")
-  updatedSuppliers  Supplier[]        @relation("updatedSuppliers")
-  requestedChanges  ChangeRequest[]   @relation("requestedChanges")
-  decidedChanges    ChangeRequest[]   @relation("decidedChanges")
-  createdPurchases  Purchase[]        @relation("createdPurchases")
-  updatedPurchases  Purchase[]        @relation("updatedPurchases")
-  voidedPurchases   Purchase[]        @relation("voidedPurchases")
-  stockMovements    StockMovement[]
+  createdCategories  ProductCategory[]     @relation("createdCategories")
+  createdProducts    Product[]             @relation("createdProducts")
+  createdCustomers   Customer[]            @relation("createdCustomers")
+  createdSuppliers   Supplier[]            @relation("createdSuppliers")
+  updatedCategories  ProductCategory[]     @relation("updatedCategories")
+  updatedProducts    Product[]             @relation("updatedProducts")
+  updatedCustomers   Customer[]            @relation("updatedCustomers")
+  updatedSuppliers   Supplier[]            @relation("updatedSuppliers")
+  requestedChanges   ChangeRequest[]       @relation("requestedChanges")
+  decidedChanges     ChangeRequest[]       @relation("decidedChanges")
+  createdPurchases   Purchase[]            @relation("createdPurchases")
+  updatedPurchases   Purchase[]            @relation("updatedPurchases")
+  voidedPurchases    Purchase[]            @relation("voidedPurchases")
+  createdOrders      SalesOrder[]          @relation("createdOrders")
+  updatedOrders      SalesOrder[]          @relation("updatedOrders")
+  voidedOrders       SalesOrder[]          @relation("voidedOrders")
+  createdDeliveries  Delivery[]            @relation("createdDeliveries")
+  updatedDeliveries  Delivery[]            @relation("updatedDeliveries")
+  voidedDeliveries   Delivery[]            @relation("voidedDeliveries")
+  createdCollections Collection[]          @relation("createdCollections")
+  updatedCollections Collection[]          @relation("updatedCollections")
+  voidedCollections  Collection[]          @relation("voidedCollections")
+  ledgerEntries      CustomerLedgerEntry[]
+  stockMovements     StockMovement[]
 
   @@map("users")
 }
@@ -298,8 +314,10 @@ model Product {
   creator  User?           @relation("createdProducts", fields: [createdBy], references: [id], onDelete: Restrict)
   updater  User?           @relation("updatedProducts", fields: [updatedBy], references: [id], onDelete: Restrict)
 
-  purchaseItems  PurchaseItem[]
-  stockMovements StockMovement[]
+  purchaseItems   PurchaseItem[]
+  stockMovements  StockMovement[]
+  salesOrderItems SalesOrderItem[]
+  deliveryItems   DeliveryItem[]
 
   @@unique([businessId, code])
   // Target of composite foreign keys from business data (same-business rows only).
@@ -317,37 +335,50 @@ model Product {
 }
 
 model Customer {
-  id             String   @id @default(uuid(7)) @db.Uuid
-  businessId     String   @map("business_id") @db.Uuid
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  businessId              String   @map("business_id") @db.Uuid
   /// Generated from document_counters, e.g. C-00001. Never changes.
-  code           String   @db.VarChar(32)
-  nameEn         String   @map("name_en") @db.VarChar(120)
-  nameBn         String?  @map("name_bn") @db.VarChar(120)
+  code                    String   @db.VarChar(32)
+  nameEn                  String   @map("name_en") @db.VarChar(120)
+  nameBn                  String?  @map("name_bn") @db.VarChar(120)
   /// Required, E.164 (+8801XXXXXXXXX), unique within the business.
-  phone          String   @db.VarChar(20)
-  address        String?  @db.VarChar(255)
-  area           String?  @db.VarChar(80)
+  phone                   String   @db.VarChar(20)
+  address                 String?  @db.VarChar(255)
+  area                    String?  @db.VarChar(80)
   /// Positive: the customer owes us. Negative: an advance we owe them.
-  openingBalance Decimal  @map("opening_balance") @db.Decimal(14, 2)
+  openingBalance          Decimal  @map("opening_balance") @db.Decimal(14, 2)
   /// Kept up to date in the same transaction as every sale and collection,
   /// so due lists never add up all transactions.
-  currentBalance Decimal  @map("current_balance") @db.Decimal(14, 2)
+  currentBalance          Decimal  @map("current_balance") @db.Decimal(14, 2)
   /// Null means no limit.
-  creditLimit    Decimal? @map("credit_limit") @db.Decimal(14, 2)
-  isActive       Boolean  @default(true) @map("is_active")
-  createdBy      String?  @map("created_by") @db.Uuid
-  updatedBy      String?  @map("updated_by") @db.Uuid
+  creditLimit             Decimal? @map("credit_limit") @db.Decimal(14, 2)
+  /// Bags ordered but not yet delivered, over active orders (kept in the same
+  /// transaction as orders and deliveries).
+  pendingDeliveryQuantity Decimal  @default(0) @map("pending_delivery_quantity") @db.Decimal(14, 3)
+  /// Value of active deliveries and sum of active collections. Always:
+  /// current_balance = opening_balance + delivered_amount - collected_amount.
+  deliveredAmount         Decimal  @default(0) @map("delivered_amount") @db.Decimal(14, 2)
+  collectedAmount         Decimal  @default(0) @map("collected_amount") @db.Decimal(14, 2)
+  isActive                Boolean  @default(true) @map("is_active")
+  createdBy               String?  @map("created_by") @db.Uuid
+  updatedBy               String?  @map("updated_by") @db.Uuid
   /// Bumped on every change; a change request is stale when it no longer matches.
-  version        Int      @default(1)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version                 Int      @default(1)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
   creator  User?    @relation("createdCustomers", fields: [createdBy], references: [id], onDelete: Restrict)
   updater  User?    @relation("updatedCustomers", fields: [updatedBy], references: [id], onDelete: Restrict)
 
+  salesOrders   SalesOrder[]
+  deliveries    Delivery[]
+  collections   Collection[]
+  ledgerEntries CustomerLedgerEntry[]
+
   @@unique([businessId, code])
   @@unique([businessId, phone])
+  @@unique([businessId, id])
   // Matches the list order (name, then id) so pages are read straight from the index.
   @@index([businessId, isActive, nameEn, id])
   @@index([businessId, currentBalance])
@@ -528,13 +559,13 @@ model StockMovement {
   id           String   @id @default(uuid(7)) @db.Uuid
   businessId   String   @map("business_id") @db.Uuid
   productId    String   @map("product_id") @db.Uuid
-  /// purchase, purchase_edit, purchase_void, adjustment (Step 5b adds delivery, delivery_void).
+  /// purchase, purchase_edit, purchase_void, adjustment, delivery, delivery_edit, delivery_void.
   kind         String   @db.VarChar(16)
   quantity     Decimal  @db.Decimal(14, 3)
   balanceAfter Decimal  @map("balance_after") @db.Decimal(14, 3)
   /// The business date it counts on: the purchase date, or the day of a void, edit or adjustment.
   movementDate DateTime @map("movement_date") @db.Date
-  /// What caused it: "purchase" with the purchase id, or "adjustment" (no id).
+  /// What caused it: "purchase" or "delivery" with its id, or "adjustment" (no id).
   sourceType   String   @map("source_type") @db.VarChar(16)
   sourceId     String?  @map("source_id") @db.Uuid
   reason       String?  @db.VarChar(500)
@@ -566,4 +597,232 @@ model MonthlyPurchaseCounter {
 
   @@id([businessId, period])
   @@map("monthly_purchase_counters")
+}
+
+// ---------------------------------------------------------------------------
+// Dealership module: orders, deliveries and collections (Step 5b). Business
+// data, never deleted (void). An order sets the price; a delivery moves stock
+// and the customer's balance; a collection moves the balance. Every balance
+// change is also written to the append-only customer ledger.
+// ---------------------------------------------------------------------------
+
+/// A customer's order. Prices are fixed here; nothing moves until delivery.
+model SalesOrder {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  /// From document_counters, e.g. ORD-0001.
+  code              String    @db.VarChar(32)
+  customerId        String    @map("customer_id") @db.Uuid
+  orderDate         DateTime  @map("order_date") @db.Date
+  /// today, two_days or one_week.
+  deliveryWindow    String    @map("delivery_window") @db.VarChar(12)
+  /// Optional promised date (on or after the order date).
+  deliverBy         DateTime? @map("deliver_by") @db.Date
+  totalQuantity     Decimal   @map("total_quantity") @db.Decimal(14, 3)
+  deliveredQuantity Decimal   @default(0) @map("delivered_quantity") @db.Decimal(14, 3)
+  totalAmount       Decimal   @map("total_amount") @db.Decimal(14, 2)
+  /// active or void.
+  status            String    @default("active") @db.VarChar(8)
+  /// pending (nothing delivered), partial or delivered; follows the quantities (CHECK).
+  deliveryStatus    String    @default("pending") @map("delivery_status") @db.VarChar(10)
+  note              String?   @db.VarChar(500)
+  idempotencyKey    String?   @map("idempotency_key") @db.VarChar(64)
+  version           Int       @default(1)
+  createdBy         String    @map("created_by") @db.Uuid
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  voidedBy          String?   @map("voided_by") @db.Uuid
+  voidedAt          DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidReason        String?   @map("void_reason") @db.VarChar(500)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customer    Customer         @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  creator     User             @relation("createdOrders", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater     User?            @relation("updatedOrders", fields: [updatedBy], references: [id], onDelete: Restrict)
+  voider      User?            @relation("voidedOrders", fields: [voidedBy], references: [id], onDelete: Restrict)
+  items       SalesOrderItem[]
+  deliveries  Delivery[]
+  collections Collection[]
+
+  @@unique([businessId, code])
+  @@unique([businessId, id])
+  @@index([businessId, orderDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, status, deliveryStatus, orderDate(sort: Desc)])
+  @@index([businessId, customerId, orderDate(sort: Desc)])
+  @@index([businessId, createdBy, orderDate(sort: Desc)])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([voidedBy])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  businessId        String   @map("business_id") @db.Uuid
+  orderId           String   @map("order_id") @db.Uuid
+  productId         String   @map("product_id") @db.Uuid
+  quantity          Decimal  @db.Decimal(14, 3)
+  deliveredQuantity Decimal  @default(0) @map("delivered_quantity") @db.Decimal(14, 3)
+  unitPrice         Decimal  @map("unit_price") @db.Decimal(14, 2)
+  lineTotal         Decimal  @map("line_total") @db.Decimal(14, 2)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  order         SalesOrder     @relation(fields: [businessId, orderId], references: [businessId, id], onDelete: Restrict)
+  product       Product        @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  deliveryItems DeliveryItem[]
+
+  @@unique([orderId, productId])
+  @@unique([businessId, id])
+  @@index([businessId, orderId])
+  @@index([businessId, productId])
+  @@map("sales_order_items")
+}
+
+/// A (partial) delivery of one order: stock out, balance up.
+model Delivery {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  businessId          String    @map("business_id") @db.Uuid
+  /// From document_counters, e.g. DEL-0001.
+  code                String    @db.VarChar(32)
+  orderId             String    @map("order_id") @db.Uuid
+  customerId          String    @map("customer_id") @db.Uuid
+  deliveryDate        DateTime  @map("delivery_date") @db.Date
+  /// Optional reference to a transport trip (Transport module, later) or a truck number.
+  transportReference  String?   @map("transport_reference") @db.VarChar(64)
+  totalQuantity       Decimal   @map("total_quantity") @db.Decimal(14, 3)
+  /// Quantity × the order's unit prices.
+  totalAmount         Decimal   @map("total_amount") @db.Decimal(14, 2)
+  /// The customer's balance went over the credit limit with this delivery.
+  creditLimitExceeded Boolean   @default(false) @map("credit_limit_exceeded")
+  status              String    @default("active") @db.VarChar(8)
+  note                String?   @db.VarChar(500)
+  idempotencyKey      String?   @map("idempotency_key") @db.VarChar(64)
+  version             Int       @default(1)
+  createdBy           String    @map("created_by") @db.Uuid
+  updatedBy           String?   @map("updated_by") @db.Uuid
+  voidedBy            String?   @map("voided_by") @db.Uuid
+  voidedAt            DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidReason          String?   @map("void_reason") @db.VarChar(500)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  order    SalesOrder     @relation(fields: [businessId, orderId], references: [businessId, id], onDelete: Restrict)
+  customer Customer       @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  creator  User           @relation("createdDeliveries", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?          @relation("updatedDeliveries", fields: [updatedBy], references: [id], onDelete: Restrict)
+  voider   User?          @relation("voidedDeliveries", fields: [voidedBy], references: [id], onDelete: Restrict)
+  items    DeliveryItem[]
+
+  @@unique([businessId, code])
+  @@unique([businessId, id])
+  @@index([businessId, deliveryDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, customerId, deliveryDate(sort: Desc)])
+  @@index([businessId, orderId])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([voidedBy])
+  @@map("deliveries")
+}
+
+model DeliveryItem {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  deliveryId  String   @map("delivery_id") @db.Uuid
+  orderItemId String   @map("order_item_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  quantity    Decimal  @db.Decimal(14, 3)
+  /// The order line's price (kept equal when the order's price is corrected).
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(14, 2)
+  lineTotal   Decimal  @map("line_total") @db.Decimal(14, 2)
+  status      String   @default("active") @db.VarChar(8)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  delivery  Delivery       @relation(fields: [businessId, deliveryId], references: [businessId, id], onDelete: Restrict)
+  orderItem SalesOrderItem @relation(fields: [businessId, orderItemId], references: [businessId, id], onDelete: Restrict)
+  product   Product        @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([deliveryId, orderItemId])
+  @@index([businessId, deliveryId])
+  @@index([businessId, orderItemId, status])
+  @@index([businessId, productId])
+  @@map("delivery_items")
+}
+
+/// Money received from a customer. Goes straight to the balance; an order is
+/// only a reference (an advance for it), never an allocation.
+model Collection {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  /// From document_counters, e.g. COL-0001.
+  code           String    @db.VarChar(32)
+  customerId     String    @map("customer_id") @db.Uuid
+  orderId        String?   @map("order_id") @db.Uuid
+  collectionDate DateTime  @map("collection_date") @db.Date
+  /// One of the business's methods (cash, bkash, nagad, bank, cheque by default).
+  method         String    @db.VarChar(16)
+  amount         Decimal   @db.Decimal(14, 2)
+  /// Transaction id, cheque number and the like.
+  reference      String?   @db.VarChar(64)
+  status         String    @default("active") @db.VarChar(8)
+  note           String?   @db.VarChar(500)
+  idempotencyKey String?   @map("idempotency_key") @db.VarChar(64)
+  version        Int       @default(1)
+  createdBy      String    @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  voidedBy       String?   @map("voided_by") @db.Uuid
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidReason     String?   @map("void_reason") @db.VarChar(500)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customer Customer    @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  order    SalesOrder? @relation(fields: [businessId, orderId], references: [businessId, id], onDelete: Restrict)
+  creator  User        @relation("createdCollections", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater  User?       @relation("updatedCollections", fields: [updatedBy], references: [id], onDelete: Restrict)
+  voider   User?       @relation("voidedCollections", fields: [voidedBy], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, code])
+  @@unique([businessId, id])
+  @@index([businessId, collectionDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, customerId, collectionDate(sort: Desc)])
+  @@index([businessId, orderId])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([voidedBy])
+  @@map("collections")
+}
+
+/// Append-only customer ledger: every change of a customer's balance from a
+/// delivery or collection (+ the customer owes more). Opening balance is not
+/// here: current_balance = opening_balance + sum(amount).
+model CustomerLedgerEntry {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  /// delivery, delivery_edit, delivery_void, collection, collection_edit, collection_void.
+  kind       String   @db.VarChar(16)
+  amount     Decimal  @db.Decimal(14, 2)
+  /// The business date it counts on: the document's date, or the day of an edit or void.
+  entryDate  DateTime @map("entry_date") @db.Date
+  sourceType String   @map("source_type") @db.VarChar(16)
+  sourceId   String   @map("source_id") @db.Uuid
+  reason     String?  @db.VarChar(500)
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customer Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  creator  User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([businessId, customerId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([businessId, sourceType, sourceId])
+  @@index([createdBy])
+  @@map("customer_ledger_entries")
 }

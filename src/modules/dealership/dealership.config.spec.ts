@@ -9,7 +9,9 @@ describe('parseDealershipConfig', () => {
         { key: 'ton', nameEn: 'Ton', nameBn: 'টন', decimals: 3 },
       ],
       defaultUnit: 'ton',
-      codePrefixes: { product: 'RD', customer: 'RC', supplier: 'RS', purchase: 'RP' },
+      codePrefixes: { product: 'RD', customer: 'RC', supplier: 'RS', purchase: 'RP', order: 'RO' },
+      creditLimitMode: 'block',
+      collectionMethods: ['cash', 'bkash', 'Bad Key', 'cash'],
       timezone: 'Asia/Kolkata',
       backdateLimitDays: 3,
       stockAdjustmentLimit: 25,
@@ -22,7 +24,12 @@ describe('parseDealershipConfig', () => {
       customer: 'RC',
       supplier: 'RS',
       purchase: 'RP',
+      order: 'RO',
+      delivery: 'DEL',
+      collection: 'COL',
     });
+    expect(config.creditLimitMode).toBe('block');
+    expect(config.collectionMethods).toEqual(['cash', 'bkash']);
     expect(config).toMatchObject({
       timezone: 'Asia/Kolkata',
       backdateLimitDays: 3,
@@ -55,7 +62,12 @@ describe('parseDealershipConfig', () => {
       customer: 'C',
       supplier: 'S',
       purchase: 'PUR',
+      order: 'ORD',
+      delivery: 'DEL',
+      collection: 'COL',
     });
+    expect(config.creditLimitMode).toBe('warn');
+    expect(config.collectionMethods).toEqual(['cash', 'bkash', 'nagad', 'bank', 'cheque']);
     expect(config).toMatchObject({
       timezone: 'Asia/Dhaka',
       backdateLimitDays: 7,

@@ -29,6 +29,22 @@ import { ProductStockChangeHandler } from './stock/product-stock-handler';
 import { StockLedger } from './stock/stock-ledger';
 import { StockController } from './stock/stock.controller';
 import { StockService } from './stock/stock.service';
+import { CollectionsService } from './sales/collections.service';
+import { CustomerAccounts } from './sales/customer-accounts';
+import { DeliveriesService } from './sales/deliveries.service';
+import { OrdersService } from './sales/orders.service';
+import {
+  CollectionChangeHandler,
+  DeliveryChangeHandler,
+  SalesOrderChangeHandler,
+} from './sales/sales-change-handlers';
+import {
+  CollectionMethodsController,
+  CollectionsController,
+  CustomerLedgerController,
+  DeliveriesController,
+  OrdersController,
+} from './sales/sales.controllers';
 
 @Module({
   imports: [PermissionsModule, ApprovalsModule],
@@ -41,6 +57,11 @@ import { StockService } from './stock/stock.service';
     PurchasesController,
     PurchaseCountersController,
     StockController,
+    OrdersController,
+    DeliveriesController,
+    CollectionsController,
+    CollectionMethodsController,
+    CustomerLedgerController,
   ],
   providers: [
     DealershipContext,
@@ -53,6 +74,13 @@ import { StockService } from './stock/stock.service';
     PurchaseChangeHandler,
     StockService,
     ProductStockChangeHandler,
+    CustomerAccounts,
+    OrdersService,
+    DeliveriesService,
+    CollectionsService,
+    SalesOrderChangeHandler,
+    DeliveryChangeHandler,
+    CollectionChangeHandler,
   ],
 })
 export class DealershipModule {
@@ -61,6 +89,9 @@ export class DealershipModule {
     changeHandlers: ChangeHandlerRegistry,
     purchaseHandler: PurchaseChangeHandler,
     stockHandler: ProductStockChangeHandler,
+    orderHandler: SalesOrderChangeHandler,
+    deliveryHandler: DeliveryChangeHandler,
+    collectionHandler: CollectionChangeHandler,
   ) {
     registry.register(DEALERSHIP_PERMISSIONS);
     registerTenantModels(DEALERSHIP_TENANT_MODELS);
@@ -72,5 +103,9 @@ export class DealershipModule {
     changeHandlers.register(purchaseHandler);
     // Stock adjustments above the daily limit.
     changeHandlers.register(stockHandler);
+    // Orders, deliveries and collections (Step 5b).
+    changeHandlers.register(orderHandler);
+    changeHandlers.register(deliveryHandler);
+    changeHandlers.register(collectionHandler);
   }
 }

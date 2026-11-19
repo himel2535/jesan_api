@@ -16,6 +16,12 @@ export const DEALERSHIP_TENANT_MODELS = [
   'PurchaseItem',
   'StockMovement',
   'MonthlyPurchaseCounter',
+  'SalesOrder',
+  'SalesOrderItem',
+  'Delivery',
+  'DeliveryItem',
+  'Collection',
+  'CustomerLedgerEntry',
 ];
 
 /**
@@ -40,6 +46,10 @@ export const DEALERSHIP_PERMISSIONS: PermissionGroup = {
     { key: 'customer.balance.edit' },
     { key: 'customer.deactivate' },
     { key: 'collection.create', defaultRoles: ['manager', 'accountant'] },
+    { key: 'collection.view', defaultRoles: ['manager', 'accountant'] },
+    // Correcting or voiding a collection: owner level by default.
+    { key: 'collection.edit' },
+    { key: 'collection.void' },
     { key: 'supplier.view', defaultRoles: ['manager'] },
     { key: 'purchase.view', defaultRoles: ['manager'] },
     { key: 'purchase.create', defaultRoles: ['manager'] },
@@ -55,7 +65,15 @@ export const DEALERSHIP_PERMISSIONS: PermissionGroup = {
     { key: 'sale.create', defaultRoles: ['manager', 'salesman'] },
     { key: 'sale.view.all', defaultRoles: ['manager'] },
     { key: 'sale.view.own', defaultRoles: ['salesman'] },
+    // Orders (Step 5b). Correcting or voiding an order: owner level by default.
+    { key: 'sale.edit' },
     { key: 'sale.void' },
+    { key: 'delivery.view', defaultRoles: ['manager'] },
+    { key: 'delivery.create', defaultRoles: ['manager'] },
+    { key: 'delivery.edit' },
+    { key: 'delivery.void' },
+    // Deliver beyond the customer's credit limit when the business blocks it.
+    { key: 'delivery.credit.override' },
     { key: 'ledger.view', defaultRoles: ['accountant'] },
     { key: 'ledger.entry.create', defaultRoles: ['accountant'] },
     { key: 'payment.create', defaultRoles: ['accountant'] },

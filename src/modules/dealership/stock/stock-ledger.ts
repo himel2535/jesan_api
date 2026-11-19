@@ -4,7 +4,14 @@ import { dayStartIn, toDbDate } from '../../../core/common/business-time';
 import { lockRows } from '../../../core/database/row-lock';
 import { errorBody } from '../../../core/errors';
 
-export type MovementKind = 'purchase' | 'purchase_edit' | 'purchase_void' | 'adjustment';
+export type MovementKind =
+  | 'purchase'
+  | 'purchase_edit'
+  | 'purchase_void'
+  | 'adjustment'
+  | 'delivery'
+  | 'delivery_edit'
+  | 'delivery_void';
 
 export interface StockEntry {
   productId: string;
@@ -13,7 +20,7 @@ export interface StockEntry {
   kind: MovementKind;
   /** Business date it counts on (YYYY-MM-DD). */
   movementDate: string;
-  sourceType: 'purchase' | 'adjustment';
+  sourceType: 'purchase' | 'delivery' | 'adjustment';
   sourceId: string | null;
   reason: string | null;
 }
