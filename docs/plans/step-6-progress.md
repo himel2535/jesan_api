@@ -68,3 +68,8 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
 - README.md-তে নতুন "খরচ, ক্যাশ বই ও রিপোর্ট" অংশ + কমান্ড টেবিলে
   `db:seed:perf:expenses`। CLAUDE.md-র কমান্ড তালিকায় perf/consistency
   স্ক্রিপ্ট যোগ।
+
+### ধাপ ৯ অবস্থা
+- PR #16 খোলা হয়েছে (himel2535/jesan_api#16), branch pushed, CI-র জন্য
+  অপেক্ষমাণ (subscribe করা হয়েছে)। সবুজ হলে squash merge করে branch মুছে
+  ফেলা হবে এবং চূড়ান্ত রিপোর্ট দেওয়া হবে।
