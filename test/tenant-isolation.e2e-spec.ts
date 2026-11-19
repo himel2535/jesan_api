@@ -102,6 +102,12 @@ describe.skipIf(!hasDatabase)('business data isolation in the Prisma client', ()
     await expect(db.supplier.updateMany({ data: { isActive: false } })).rejects.toThrow(
       /without where.businessId/,
     );
+    // Step 6 tables.
+    await expect(db.expense.findMany()).rejects.toThrow(/without where.businessId/);
+    await expect(db.expenseCategory.count()).rejects.toThrow(/without where.businessId/);
+    await expect(
+      db.expenseCategory.create({ data: { nameEn: 'X', nameBn: 'X' } as never }),
+    ).rejects.toThrow(/without data.businessId/);
   });
 
   it('still lets the default client query platform tables and a stated business', async () => {
