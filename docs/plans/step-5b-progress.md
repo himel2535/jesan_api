@@ -8,7 +8,7 @@ Branch: `claude/step-5b-orders-deliveries`। প্ল্যান: `docs/plans
 - [x] ৩. ডেলিভারি: তৈরি (স্টক, ব্যালেন্স, খাতা, ক্রেডিট সীমা), তালিকা + টেস্ট
 - [x] ৪. আদায় ও গ্রাহকের খাতা + টেস্ট
 - [x] ৫. বাতিল ও সংশোধন handler (sales_order, delivery, collection) + টেস্ট
-- [ ] ৬. consistency:check script, পারফরম্যান্স মাপ
+- [x] ৬. consistency:check script, পারফরম্যান্স মাপ (সব লক্ষ্যের অনেক নিচে; ফল DECISIONS.md-তে যাবে)
 - [ ] ৭. docs (API.md, README, DECISIONS.md, CLAUDE.md)
 - [ ] ৮. যাচাই, PR, merge, চূড়ান্ত রিপোর্ট
 
