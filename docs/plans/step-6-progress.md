@@ -8,14 +8,14 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
 - [x] ৩. খরচ: তৈরি, তালিকা, বিস্তারিত, idempotency + টেস্ট
 - [x] ৪. `ExpenseChangeHandler`: সংশোধন ও বাতিল + টেস্ট
 - [x] ৫. ক্যাশ বই + `consistency:check` + টেস্ট
-- [ ] ৬. ছয়টা রিপোর্ট + টেস্ট
+- [x] ৬. ছয়টা রিপোর্ট + টেস্ট
 - [ ] ৭. perf seed, মাপ, index যাচাই → DECISIONS.md
 - [ ] ৮. docs (API.md, adding-a-business.md, README.md, CLAUDE.md, DECISIONS.md)
 - [ ] ৯. যাচাই, PR, merge, চূড়ান্ত রিপোর্ট
 
 ## কোডের অবস্থা
 
-- ধাপ ০–৫ শেষ। নতুন টেস্ট: `test/expenses.e2e-spec.ts` (১৩টা), `test/expense-changes.e2e-spec.ts` (১০টা), `test/cash-book.e2e-spec.ts` (৬টা)। পুরো suite ৩২০/৩২০ পাস (লোকাল PostgreSQL ১৬)। `npm run consistency:check` সবুজ।
+- ধাপ ০–৬ শেষ। নতুন টেস্ট: `test/expenses.e2e-spec.ts` (১৩টা), `test/expense-changes.e2e-spec.ts` (১০টা), `test/cash-book.e2e-spec.ts` (৬টা), `test/reports.e2e-spec.ts` (১০টা)। পুরো suite ৩৩০/৩৩০ পাস, build সবুজ। `npm run consistency:check` সবুজ।
 - প্ল্যান থেকে ছোট বদল:
   - `PATCH expenses/:id`-এ `@RequirePermission('expense.edit')` (প্ল্যানে `expense.view` ছিল)। কারণ: Step 5b-র collections-এর সঙ্গে মিল; কর্মী এমনিতেই অনুরোধের পথে যায়।
   - `GET expense-categories` পাতাভাগ ছাড়া (`?active=` আছে)। কারণ: ধরন অল্প, পণ্যের ক্যাটাগরির মতোই।
@@ -35,3 +35,15 @@ Branch: `claude/step-6-expenses-cashbook-reports`। প্ল্যান: `doc
 - `consistency:check`-এ নতুন দুটো block: ক্যাশ বইয়ের মোট (সরাসরি যোগফল বনাম
   দিনভিত্তিক যোগফল) আর active খরচের ধরন নিজের ব্যবসার কিনা (FK already guarantees;
   defensive)।
+
+### ধাপ ৬ নোট
+- ছয়টা রিপোর্ট: sales (date/customer/product/category), collections (date/method),
+  dues (বয়স-ভাগ FIFO), stock, stock-movements (kind-ভিত্তিক), expenses
+  (category/month), daily-summary। সব `report.view`।
+- `daily-summary`-র `cash` অংশ `@VisibleWith('cashbook.view')` — সার্ভারেই বাদ,
+  frontend-এ নয়।
+- product/category গ্রুপিং: Prisma `groupBy` scalar field-এর বাইরে একসাথে দুই
+  কলামে group করতে পারে না বলে productId ধরে groupBy, তারপর id-ভিত্তিক আলাদা
+  findMany দিয়ে নাম/ক্যাটাগরি জোড়া — লুপে query নয় (`Promise.all`)।
+- বয়স-ভাগ: প্রতি গ্রাহকের নিজের `customer_ledger_entries` (business+customer
+  index থেকে) দিয়ে FIFO; শুধু পাতার ১০ গ্রাহকের জন্য, পুরো টেবিলে নয়।

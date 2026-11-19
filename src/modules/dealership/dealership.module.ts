@@ -35,6 +35,8 @@ import {
   ExpensesController,
 } from './expenses/expenses.controllers';
 import { ExpensesService } from './expenses/expenses.service';
+import { ReportsController } from './reports/reports.controller';
+import { ReportsService } from './reports/reports.service';
 import { PurchaseChangeHandler } from './purchases/purchase-change-handler';
 import { PurchaseCountersController, PurchasesController } from './purchases/purchases.controller';
 import { PurchasesService } from './purchases/purchases.service';
@@ -79,6 +81,7 @@ import {
     ExpenseMethodsController,
     ExpensesController,
     CashBookController,
+    ReportsController,
   ],
   providers: [
     DealershipContext,
@@ -102,6 +105,7 @@ import {
     ExpensesService,
     ExpenseChangeHandler,
     CashBookService,
+    ReportsService,
   ],
 })
 export class DealershipModule {
