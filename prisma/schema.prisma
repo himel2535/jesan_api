@@ -28,27 +28,30 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  access            UserBusinessAccess[]
-  rolePermissions   RolePermission[]
-  auditLogs         AuditLog[]
-  documentCounters  DocumentCounter[]
-  productCategories ProductCategory[]
-  products          Product[]
-  customers         Customer[]
-  suppliers         Supplier[]
-  changeRequests    ChangeRequest[]
-  purchases         Purchase[]
-  purchaseItems     PurchaseItem[]
-  stockMovements    StockMovement[]
-  purchaseCounters  MonthlyPurchaseCounter[]
-  salesOrders       SalesOrder[]
-  salesOrderItems   SalesOrderItem[]
-  deliveries        Delivery[]
-  deliveryItems     DeliveryItem[]
-  collections       Collection[]
-  customerLedger    CustomerLedgerEntry[]
-  expenseCategories ExpenseCategory[]
-  expenses          Expense[]
+  access             UserBusinessAccess[]
+  rolePermissions    RolePermission[]
+  auditLogs          AuditLog[]
+  documentCounters   DocumentCounter[]
+  productCategories  ProductCategory[]
+  products           Product[]
+  customers          Customer[]
+  suppliers          Supplier[]
+  changeRequests     ChangeRequest[]
+  purchases          Purchase[]
+  purchaseItems      PurchaseItem[]
+  stockMovements     StockMovement[]
+  purchaseCounters   MonthlyPurchaseCounter[]
+  salesOrders        SalesOrder[]
+  salesOrderItems    SalesOrderItem[]
+  deliveries         Delivery[]
+  deliveryItems      DeliveryItem[]
+  collections        Collection[]
+  customerLedger     CustomerLedgerEntry[]
+  expenseCategories  ExpenseCategory[]
+  expenses           Expense[]
+  commissionScheme   CommissionScheme?
+  commissionEntries  CommissionEntry[]
+  commissionReceipts CommissionReceipt[]
 
   @@map("businesses")
 }
@@ -605,6 +608,67 @@ model MonthlyPurchaseCounter {
 
   @@id([businessId, period])
   @@map("monthly_purchase_counters")
+}
+
+// ---------------------------------------------------------------------------
+// Commission module (Step 7): the Akij Cement commission scheme and the
+// entries/receipts tracked against it. Owner-only; no BSRM commission yet.
+
+/// Single active scheme per business; upsert replaces the previous one.
+model CommissionScheme {
+  businessId String   @id @map("business_id") @db.Uuid
+  /// Base commission per unit — applies to ALL units.
+  rateBase   Decimal  @map("rate_base") @db.Decimal(14, 2)
+  /// Unit threshold above which bonusRate kicks in.
+  targetQty  Decimal  @map("target_qty") @db.Decimal(14, 3)
+  /// Extra commission per unit for each unit ABOVE targetQty.
+  bonusRate  Decimal  @map("bonus_rate") @db.Decimal(14, 2)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@map("commission_schemes")
+}
+
+model CommissionEntry {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  /// Start of the period this entry covers (inclusive).
+  fromDate         DateTime @map("from_date") @db.Date
+  /// End of the period this entry covers (inclusive).
+  toDate           DateTime @map("to_date") @db.Date
+  /// Quantity entered by owner (may differ from purchase records).
+  quantity         Decimal  @db.Decimal(14, 3)
+  /// Commission calculated at save time using the current scheme.
+  calculatedAmount Decimal  @map("calculated_amount") @db.Decimal(14, 2)
+  note             String?  @db.VarChar(500)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  receipts CommissionReceipt[]
+
+  @@index([businessId, fromDate])
+  @@map("commission_entries")
+}
+
+model CommissionReceipt {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  entryId      String   @map("entry_id") @db.Uuid
+  amount       Decimal  @db.Decimal(14, 2)
+  receivedDate DateTime @map("received_date") @db.Date
+  reference    String?  @db.VarChar(100)
+  note         String?  @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  entry    CommissionEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, receivedDate])
+  @@index([entryId])
+  @@map("commission_receipts")
 }
 
 // ---------------------------------------------------------------------------
