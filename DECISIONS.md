@@ -570,3 +570,17 @@ Branch `claude/step-6-expenses-cashbook-reports`; প্ল্যান `docs/pl
 - `EXPLAIN (ANALYZE, BUFFERS)`-এ আদায়ের groupBy ক্যাশ-বই covering index থেকে **Index Only Scan**, ০.৬ ms execution — ডিজাইন অনুযায়ী কাজ করছে।
 - বিক্রয়-পণ্য/ক্যাটাগরি রিপোর্ট তুলনামূলক ধীর (৭৬-১০১ ms) কারণ `delivery_items` থেকে প্রথমে productId ধরে `groupBy`, তারপর products/categories আলাদা `findMany`; তবু লক্ষ্যের অনেক নিচে, আর তালিকায় `_count` ব্যবহার করা হয়নি।
 - `npm run consistency:check` perf ডাটাবেসে সবুজ (ক্যাশ-বইয়ের নতুন পরীক্ষাসহ)।
+
+## ২০২৬-১১-২০: Akij কমিশন scheme, entry ও receipt (Step 7, স্বয়ংক্রিয় মোড)
+
+`commission.view`/`commission.manage` আগে থেকেই registry-তে ঘোষিত ছিল (উভয়ই `ownerOnly`); এই step-এ শুধু তার টাকার হিসাব আর CRUD বানানো হলো। BSRM-এর জন্য commission module আলাদা থাকবে; এটা শুধু Akij Cement।
+
+- **কোনো `commission.module.ts` নেই।** `DealershipModule` flat — প্রতিটা sub-folder-এর controller/service সরাসরি `dealership.module.ts`-এর `controllers`/`providers` array-তে, আলাদা `@Module` wrapper নেই কোথাও (purchases, sales, expenses সব একই রকম)। তাই commission-ও একই প্যাটার্নে — নতুন module wrapper বানানো হয়নি।
+- **কেন্দ্রীয় `error-codes.ts` রেপোতে নেই।** কোড inline string literal হিসেবে প্রতিটা `badRequest`/`notFoundError` call-এ, convention অনুযায়ী।
+- **তারিখ কলাম `DateTime @db.Date`**, `String` নয় — `Purchase.purchaseDate`-এর মতোই, `toDbDate`/`fromDbDate` দিয়ে রূপান্তর।
+- **`calculateCommission()`-এ 2-দশমিক রাউন্ডিং যোগ করা হলো** (`toDecimalPlaces(2, ROUND_HALF_UP)`), যদিও uploaded spec-এ উল্লেখ ছিল না — `Decimal(14,2)` কলামের সাথে মেলাতে, আর `purchases.service.ts`-এর `lineTotalOf`-এর মতো একই রাউন্ডিং নিয়ম। সব উদাহরণের মান ঠিক থাকায় কোনো টেস্ট বদলায়নি।
+- **তারিখ ভ্যালিডেশনে ব্যবসার timezone** (`DealershipContext.config().timezone`) ব্যবহার হলো, হার্ডকোড `Asia/Dhaka` নয় — CLAUDE.md-এর "ব্যবসার তারিখ সবসময় ব্যবসার সময়-অঞ্চলে" নিয়ম মানতে।
+- **suggestion endpoint** `Purchase.totalQuantity` সরাসরি aggregate করে (`status: 'active'`, `purchaseDate` range) — `PurchaseItem` জয়েনের দরকার নেই; এই schema-এ voiding `status` ফিল্ডে (isVoid বুলিয়ান নয়)।
+- **Approval workflow (change-requests) ব্যবহার হয়নি** — `commission.manage` নিজেই owner-only, তাই সরাসরি PATCH নিরাপদ, `purchase.edit`-এর মতো staff-reachable পারমিশন নয়।
+- **টেস্ট split**: pure function-এর জন্য `commission.helpers.spec.ts` (vitest unit, `src/` এর ভেতরে, `business-time.spec.ts`-এর প্যাটার্নে); service/API behavior-এর জন্য `test/commission.e2e-spec.ts` (`createTestApp`/`TestData` দিয়ে), আলাদা `commission.service.spec.ts` নয় — এই repo-তে dealership service-এর জন্য কোনো isolated unit test নেই, সব e2e।
+- `test/helpers.ts`-এর `TestData.cleanup()`-এ `commission_receipts`/`commission_entries`/`commission_schemes` টেবিল যোগ করা হলো (FK অনুসারে receipts আগে, schemes পরে), যেহেতু এটা সব dealership e2e টেস্টের জন্য শেয়ার্ড helper।

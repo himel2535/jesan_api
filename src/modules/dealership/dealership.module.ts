@@ -37,6 +37,12 @@ import {
 import { ExpensesService } from './expenses/expenses.service';
 import { ReportsController } from './reports/reports.controller';
 import { ReportsService } from './reports/reports.service';
+import {
+  CommissionEntriesController,
+  CommissionSchemeController,
+  CommissionSummaryController,
+} from './commission/commission.controller';
+import { CommissionService } from './commission/commission.service';
 import { PurchaseChangeHandler } from './purchases/purchase-change-handler';
 import { PurchaseCountersController, PurchasesController } from './purchases/purchases.controller';
 import { PurchasesService } from './purchases/purchases.service';
@@ -82,6 +88,9 @@ import {
     ExpensesController,
     CashBookController,
     ReportsController,
+    CommissionSchemeController,
+    CommissionEntriesController,
+    CommissionSummaryController,
   ],
   providers: [
     DealershipContext,
@@ -106,6 +115,7 @@ import {
     ExpenseChangeHandler,
     CashBookService,
     ReportsService,
+    CommissionService,
   ],
 })
 export class DealershipModule {

@@ -24,6 +24,9 @@ export const DEALERSHIP_TENANT_MODELS = [
   'CustomerLedgerEntry',
   'ExpenseCategory',
   'Expense',
+  'CommissionScheme',
+  'CommissionEntry',
+  'CommissionReceipt',
 ];
 
 /**
