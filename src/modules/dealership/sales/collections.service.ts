@@ -15,6 +15,7 @@ import {
 import { checkBusinessDate } from '../business-dates';
 import { Actor, PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { CustomerAccounts } from './customer-accounts';
 import {
   CollectionListQueryDto,
@@ -86,6 +87,7 @@ export class CollectionsService {
     private readonly context: DealershipContext,
     private readonly counters: DocumentCounterService,
     private readonly accounts: CustomerAccounts,
+    private readonly businessLedger: BusinessLedgerService,
     private readonly audit: AuditService,
     private readonly changes: ChangeRequestsService,
   ) {}
@@ -166,6 +168,15 @@ export class CollectionsService {
             sourceId: collection.id,
             reason: null,
           },
+        });
+        await this.businessLedger.append(tx, access.businessId, actor.userId, {
+          type: 'collection',
+          direction: 'in',
+          amount,
+          method: dto.method,
+          referenceType: 'collection',
+          referenceId: collection.id,
+          entryDate: collectionDate,
         });
         await this.audit.record(
           {

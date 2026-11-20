@@ -22,6 +22,9 @@ import { DealershipContext } from './master-data/master-data.context';
 import { ProductsService } from './master-data/products.service';
 import { SuppliersService } from './master-data/suppliers.service';
 import { DEALERSHIP_PERMISSIONS, DEALERSHIP_TENANT_MODELS } from './dealership.permissions';
+import { AccountsController } from './accounts/accounts.controller';
+import { AccountsService } from './accounts/accounts.service';
+import { BusinessLedgerService } from './accounts/business-ledger.service';
 import { CashBookController } from './cashbook/cash-book.controller';
 import { CashBookService } from './cashbook/cash-book.service';
 import { ExpenseCategoriesService } from './expenses/expense-categories.service';
@@ -91,6 +94,7 @@ import {
     CommissionSchemeController,
     CommissionEntriesController,
     CommissionSummaryController,
+    AccountsController,
   ],
   providers: [
     DealershipContext,
@@ -116,6 +120,8 @@ import {
     CashBookService,
     ReportsService,
     CommissionService,
+    BusinessLedgerService,
+    AccountsService,
   ],
 })
 export class DealershipModule {

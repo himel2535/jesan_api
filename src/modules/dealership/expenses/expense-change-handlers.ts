@@ -13,6 +13,7 @@ import { fromDbDate, isCalendarDate, toDbDate, todayIn } from '../../../core/com
 import { MONEY_PATTERN, moneyString, toDecimal } from '../../../core/common/money';
 import { lockRows } from '../../../core/database/row-lock';
 import { badRequest, conflict } from '../../../core/errors';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { DealershipConfig, parseDealershipConfig } from '../dealership.config';
 import { DEALERSHIP_TYPE } from '../dealership.permissions';
 
@@ -97,6 +98,8 @@ export class ExpenseChangeHandler implements ChangeHandler {
   readonly fields = EXPENSE_FIELDS;
   readonly void = { label: 'Void expense', directPermission: 'expense.void' };
   private readonly states = new WeakMap<LoadedRecord, ExpenseState>();
+
+  constructor(private readonly ledger: BusinessLedgerService) {}
 
   async load(
     tx: Prisma.TransactionClient,
@@ -299,6 +302,7 @@ export class ExpenseChangeHandler implements ChangeHandler {
         updatedBy: ctx.actorUserId,
       },
     });
+    await this.ledger.voidByReference(tx, ctx.businessId, 'expense', id);
   }
 
   private async requireCategory(

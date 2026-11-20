@@ -20,6 +20,7 @@ import {
   formatCode,
 } from '../../../core/numbering/document-counter.service';
 import { PeriodCounterService } from '../../../core/numbering/period-counter.service';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { Actor, PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
 import { StockLedger, quantityString } from '../stock/stock-ledger';
@@ -138,6 +139,7 @@ export class PurchasesService {
     private readonly counters: DocumentCounterService,
     private readonly periods: PeriodCounterService,
     private readonly ledger: StockLedger,
+    private readonly businessLedger: BusinessLedgerService,
     private readonly audit: AuditService,
     private readonly changes: ChangeRequestsService,
   ) {}
@@ -247,7 +249,7 @@ export class PurchasesService {
             idempotencyKey: idempotencyKey ?? null,
             createdBy: actor.userId,
           },
-          select: { id: true, code: true },
+          select: { id: true, code: true, paymentMethod: true },
         });
         await tx.purchaseItem.createMany({
           data: lines.map((line) => ({
@@ -286,6 +288,15 @@ export class PurchasesService {
           periodOf(purchaseDate),
           totalQuantity,
         );
+        await this.businessLedger.append(tx, access.businessId, actor.userId, {
+          type: 'purchase',
+          direction: 'out',
+          amount: totalAmount,
+          method: purchase.paymentMethod,
+          referenceType: 'purchase',
+          referenceId: purchase.id,
+          entryDate: purchaseDate,
+        });
         await this.audit.record(
           {
             businessId: access.businessId,

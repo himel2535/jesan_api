@@ -202,6 +202,7 @@ export class TestData {
     ]);
     for (const table of [
       'change_requests',
+      'business_ledger_entries',
       'commission_receipts',
       'commission_entries',
       'commission_schemes',

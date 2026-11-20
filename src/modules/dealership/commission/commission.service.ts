@@ -6,6 +6,7 @@ import { moneyString, toDecimal } from '../../../core/common/money';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { badRequest, notFoundError } from '../../../core/errors';
 import { quantityString } from '../stock/stock-ledger';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
 import { calculateCommission } from './commission.helpers';
@@ -71,6 +72,7 @@ export class CommissionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly context: DealershipContext,
+    private readonly ledger: BusinessLedgerService,
   ) {}
 
   async getScheme(access: BusinessAccess) {
@@ -202,25 +204,47 @@ export class CommissionService {
       where: { purchaseDate: { gte: toDbDate(from), lte: toDbDate(to) }, status: 'active' },
       _sum: { totalQuantity: true },
     });
-    return { from, to, quantity: quantityString(result._sum.totalQuantity ?? new Prisma.Decimal(0)) };
+    return {
+      from,
+      to,
+      quantity: quantityString(result._sum.totalQuantity ?? new Prisma.Decimal(0)),
+    };
   }
 
-  async createReceipt(access: BusinessAccess, entryId: string, dto: CreateReceiptDto) {
+  async createReceipt(
+    access: BusinessAccess,
+    entryId: string,
+    dto: CreateReceiptDto,
+    actorUserId: string,
+  ) {
     const db = this.prisma.forBusiness(access.businessId);
     const entry = await db.commissionEntry.findUnique({ where: { id: entryId } });
     if (!entry) {
       throw entryNotFound();
     }
     const receivedDate = await this.checkNotFuture(access, dto.receivedDate, 'receivedDate');
-    const receipt = await db.commissionReceipt.create({
-      data: {
-        businessId: access.businessId,
-        entryId,
-        amount: toDecimal(dto.amount),
-        receivedDate: toDbDate(receivedDate),
-        reference: dto.reference || null,
-        note: dto.note || null,
-      },
+    const amount = toDecimal(dto.amount);
+    const receipt = await db.$transaction(async (tx) => {
+      const row = await tx.commissionReceipt.create({
+        data: {
+          businessId: access.businessId,
+          entryId,
+          amount,
+          receivedDate: toDbDate(receivedDate),
+          reference: dto.reference || null,
+          note: dto.note || null,
+        },
+      });
+      await this.ledger.append(tx, access.businessId, actorUserId, {
+        type: 'commission_receipt',
+        direction: 'in',
+        amount,
+        method: null,
+        referenceType: 'commission_receipt',
+        referenceId: row.id,
+        entryDate: receivedDate,
+      });
+      return row;
     });
     return {
       id: receipt.id,

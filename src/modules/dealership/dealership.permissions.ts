@@ -27,6 +27,7 @@ export const DEALERSHIP_TENANT_MODELS = [
   'CommissionScheme',
   'CommissionEntry',
   'CommissionReceipt',
+  'BusinessLedgerEntry',
 ];
 
 /**

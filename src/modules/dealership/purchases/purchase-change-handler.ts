@@ -20,6 +20,7 @@ import { MONEY_PATTERN, moneyString, toDecimal } from '../../../core/common/mone
 import { lockRows } from '../../../core/database/row-lock';
 import { badRequest, conflict } from '../../../core/errors';
 import { PeriodCounterService } from '../../../core/numbering/period-counter.service';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { parseDealershipConfig } from '../dealership.config';
 import { DEALERSHIP_TYPE } from '../dealership.permissions';
 import { StockEntry, StockLedger, quantityString, stockInsufficient } from '../stock/stock-ledger';
@@ -99,6 +100,7 @@ export class PurchaseChangeHandler implements ChangeHandler {
   constructor(
     private readonly ledger: StockLedger,
     private readonly periods: PeriodCounterService,
+    private readonly businessLedger: BusinessLedgerService,
   ) {}
 
   fieldRule(key: string): FieldRule | undefined {
@@ -487,6 +489,7 @@ export class PurchaseChangeHandler implements ChangeHandler {
       state.lines.map((line) => line.productId),
       state.timezone,
     );
+    await this.businessLedger.voidByReference(tx, ctx.businessId, 'purchase', id);
   }
 
   // ---------------------------------------------------------------------------

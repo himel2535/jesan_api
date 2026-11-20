@@ -52,6 +52,7 @@ model Business {
   commissionScheme   CommissionScheme?
   commissionEntries  CommissionEntry[]
   commissionReceipts CommissionReceipt[]
+  ledgerEntries      BusinessLedgerEntry[]
 
   @@map("businesses")
 }
@@ -108,6 +109,7 @@ model User {
   createdExpenseCategories ExpenseCategory[]     @relation("createdExpenseCategories")
   updatedExpenseCategories ExpenseCategory[]     @relation("updatedExpenseCategories")
   ledgerEntries            CustomerLedgerEntry[]
+  createdLedgerEntries     BusinessLedgerEntry[]
   stockMovements           StockMovement[]
 
   @@map("users")
@@ -669,6 +671,47 @@ model CommissionReceipt {
   @@index([businessId, receivedDate])
   @@index([entryId])
   @@map("commission_receipts")
+}
+
+/// Every money movement of the business in one append-only place: collections,
+/// expenses, purchases, commission receipts (auto-entered by their own module,
+/// in the same transaction) plus manual entries and supplier payments entered
+/// here directly. Never updated except to flip `status` to 'void' when its
+/// source document is voided; a manual entry or payment has no source and is
+/// never voided by this module (status stays 'active').
+model BusinessLedgerEntry {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  /// collection, expense, purchase, commission_receipt, manual, supplier_payment.
+  type          String   @db.VarChar(32)
+  /// in or out (CHECK in the migration).
+  direction     String   @db.VarChar(4)
+  amount        Decimal  @db.Decimal(14, 2)
+  method        String?  @db.VarChar(16)
+  /// Together with referenceId, the source document; null for manual entries
+  /// and supplier payments, which have none.
+  referenceType String?  @map("reference_type") @db.VarChar(32)
+  referenceId   String?  @map("reference_id") @db.Uuid
+  /// The business's calendar date (its time zone, Asia/Dhaka by default).
+  entryDate     DateTime @map("entry_date") @db.Date
+  note          String?  @db.VarChar(500)
+  /// active or void (CHECK in the migration).
+  status        String   @default("active") @db.VarChar(8)
+  /// Only set on manual entries and supplier payments, which may repeat the
+  /// request safely; auto-entered rows always have none.
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(64)
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  creator  User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([businessId, entryDate(sort: Desc), id(sort: Desc)])
+  @@index([businessId, type, entryDate(sort: Desc)])
+  @@index([businessId, referenceType, referenceId])
+  @@index([businessId, status, direction, amount])
+  @@index([createdBy])
+  @@map("business_ledger_entries")
 }
 
 // ---------------------------------------------------------------------------

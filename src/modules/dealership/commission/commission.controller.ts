@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ParseIdPipe } from '../../../core/errors';
-import { CurrentAccess } from '../../../core/permissions/current.decorators';
+import { CurrentAccess, CurrentAuth } from '../../../core/permissions/current.decorators';
 import { RequirePermission } from '../../../core/permissions/decorators';
 import { SerializeWith } from '../../../core/permissions/serialize/serialize.interceptor';
-import type { BusinessAccess } from '../../../core/common/request-context';
+import type { AuthContext, BusinessAccess } from '../../../core/common/request-context';
 import { CommissionService } from './commission.service';
 import {
   CreateEntryDto,
@@ -92,10 +92,11 @@ export class CommissionEntriesController {
   @SerializeWith(ReceiptResponse)
   createReceipt(
     @CurrentAccess() access: BusinessAccess,
+    @CurrentAuth() auth: AuthContext,
     @Param('entryId', ParseIdPipe) entryId: string,
     @Body() body: CreateReceiptDto,
   ) {
-    return this.commission.createReceipt(access, entryId, body);
+    return this.commission.createReceipt(access, entryId, body, auth.userId);
   }
 
   @Patch(':entryId/receipts/:id')
