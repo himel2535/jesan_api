@@ -18,6 +18,7 @@ import { DEALERSHIP_TYPE } from '../dealership.permissions';
 import { QUANTITY_PATTERN } from '../purchases/dto/requests';
 import { fitsUnit, lineTotalOf } from '../purchases/purchases.service';
 import { StockLedger, quantityString } from '../stock/stock-ledger';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { CustomerAccounts } from './customer-accounts';
 import { tooMuch } from './deliveries.service';
 import { DELIVERY_WINDOWS, deliveryStatusOf, signedMoney, signedQuantity } from './sales.common';
@@ -974,7 +975,10 @@ export class CollectionChangeHandler implements ChangeHandler {
   readonly void = { label: 'Void collection', directPermission: 'collection.void' };
   private readonly states = new WeakMap<LoadedRecord, CollectionState>();
 
-  constructor(private readonly accounts: CustomerAccounts) {}
+  constructor(
+    private readonly accounts: CustomerAccounts,
+    private readonly ledger: BusinessLedgerService,
+  ) {}
 
   async load(
     tx: Prisma.TransactionClient,
@@ -1175,6 +1179,7 @@ export class CollectionChangeHandler implements ChangeHandler {
         reason,
       },
     });
+    await this.ledger.voidByReference(tx, ctx.businessId, 'collection', id);
   }
 
   private stateOf(record: LoadedRecord): CollectionState {

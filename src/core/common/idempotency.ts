@@ -16,3 +16,15 @@ export function idempotencyKeyOf(value: string | undefined): string | undefined 
   }
   return value;
 }
+
+/**
+ * Like `idempotencyKeyOf`, but the header must be present: used where a
+ * repeated request must be provably safe to retry (no optional fallback).
+ */
+export function requiredIdempotencyKeyOf(value: string | undefined): string {
+  if (value === undefined) {
+    throw badRequest('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key is required', 'Idempotency-Key');
+  }
+  idempotencyKeyOf(value);
+  return value;
+}

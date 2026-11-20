@@ -12,6 +12,7 @@ import {
   DocumentCounterService,
   formatCode,
 } from '../../../core/numbering/document-counter.service';
+import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { checkBusinessDate } from '../business-dates';
 import { Actor, PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
@@ -86,6 +87,7 @@ export class ExpensesService {
     private readonly prisma: PrismaService,
     private readonly context: DealershipContext,
     private readonly counters: DocumentCounterService,
+    private readonly ledger: BusinessLedgerService,
     private readonly audit: AuditService,
     private readonly changes: ChangeRequestsService,
   ) {}
@@ -151,6 +153,15 @@ export class ExpensesService {
             createdBy: actor.userId,
           },
           select: { id: true, code: true },
+        });
+        await this.ledger.append(tx, access.businessId, actor.userId, {
+          type: 'expense',
+          direction: 'out',
+          amount,
+          method: dto.method,
+          referenceType: 'expense',
+          referenceId: expense.id,
+          entryDate: expenseDate,
         });
         await this.audit.record(
           {

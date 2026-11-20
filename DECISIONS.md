@@ -584,3 +584,15 @@ Branch `claude/step-6-expenses-cashbook-reports`; প্ল্যান `docs/pl
 - **Approval workflow (change-requests) ব্যবহার হয়নি** — `commission.manage` নিজেই owner-only, তাই সরাসরি PATCH নিরাপদ, `purchase.edit`-এর মতো staff-reachable পারমিশন নয়।
 - **টেস্ট split**: pure function-এর জন্য `commission.helpers.spec.ts` (vitest unit, `src/` এর ভেতরে, `business-time.spec.ts`-এর প্যাটার্নে); service/API behavior-এর জন্য `test/commission.e2e-spec.ts` (`createTestApp`/`TestData` দিয়ে), আলাদা `commission.service.spec.ts` নয় — এই repo-তে dealership service-এর জন্য কোনো isolated unit test নেই, সব e2e।
 - `test/helpers.ts`-এর `TestData.cleanup()`-এ `commission_receipts`/`commission_entries`/`commission_schemes` টেবিল যোগ করা হলো (FK অনুসারে receipts আগে, schemes পরে), যেহেতু এটা সব dealership e2e টেস্টের জন্য শেয়ার্ড helper।
+
+## ২০২৬-১১-২০: Accounts module — business-level general ledger
+
+নতুন `BusinessLedgerEntry` টেবিল ও `BusinessLedgerService` (একমাত্র create/void পথ, `CustomerAccounts`-এর প্যাটার্নে) যোগ হলো। Collection/Expense/Purchase/CommissionReceipt-এর create ও void একই transaction-এ এখন এই ledger-এও লেখে।
+
+- **`status` কলাম দিয়ে void, trigger-ভিত্তিক append-only নয়।** `CustomerLedgerEntry`/`StockMovement`-এর মতো true append-only trigger (শুধু INSERT, কোনো UPDATE না) নেয়নি, কারণ task-এর schema স্পেসিফিকেশনেই `status: 'active'|'void'` কলাম চাওয়া হয়েছিল (Expense/Collection/Purchase-এর প্যাটার্নে, যেখানে void = status flip, নতুন উল্টো এন্ট্রি নয়)। `voidByReference()` তাই `updateMany` করে, নতুন row লেখে না।
+- **`totalDue`/`totalAdvance` নেট নয়, পৃথক sum।** `ReportsService.dues()`-এর মতো সব গ্রাহকের `currentBalance` নেট করে তারপর ভাগ করলে ভুল হয় (এক গ্রাহকের advance আরেকজনের due-কে চাপা দিয়ে ফেলে) — task-স্পেক অনুযায়ী `totalDue` = `currentBalance > 0`-দের sum, `totalAdvance` = `currentBalance < 0`-দের sum, আলাদা `aggregate` কলে। e2e টেস্টেই এই বাগ ধরা পড়েছিল (প্রথমে ভুলে নেট-ভিত্তিক কোড লেখা হয়েছিল)।
+- **`Idempotency-Key` বাধ্যতামূলক** (`accounts/entries`, `accounts/payments`) — বাকি সব POST-এ এটা ঐচ্ছিক। নতুন `requiredIdempotencyKeyOf()` যোগ হলো `src/core/common/idempotency.ts`-এ (code: `IDEMPOTENCY_KEY_REQUIRED`), যেহেতু বিদ্যমান `idempotencyKeyOf()` optional-ই থাকে এবং অন্য কোথাও পুনর্ব্যবহারযোগ্য।
+- **Purchase-এর `method`**: DTO-তে `paymentMethod` নেই (schema default সবসময় `'cash'`), তাই purchase-এর auto-entry সেই row-এর আসল `paymentMethod` কলাম থেকে পড়ে, DTO থেকে নয়।
+- **CommissionReceipt-এর auto-entry**-এর জন্য `createReceipt()`-কে এখন `db.$transaction`-এ ঢোকানো হলো (আগে ছিল না) আর কন্ট্রোলারে `@CurrentAuth()` যুক্ত হলো (`createdBy`-র জন্য actor প্রয়োজন ছিল, আগে কোনো actor parameter-ই ছিল না)। `method` সবসময় `null` (এই মডেলে কোনো payment-method কলাম নেই)।
+- **হাতে দেওয়া entry-র `method` ভ্যালিডেশন** `config.collectionMethods`-এর বিপরীতে (কোনো আলাদা "ledger methods" তালিকা নেই, এক্সপেন্স-এর মতো `collectionMethods` fallback নিয়ম অনুসরণ করা হলো)।
+- **docs/API.md পুনঃক্রমায়ন**: নতুন `## ১৪. হিসাব (Accounts)` আগের `১৪` (ত্রুটির রূপ ও কোড) আর `১৫` (রোল ও অনুমতি)-কে `১৫`/`১৬`-এ ঠেলে দিয়েছে; সূচি ও ভেতরের cross-reference ("অংশ ১৪/১৬") হালনাগাদ হয়েছে।
