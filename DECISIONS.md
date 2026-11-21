@@ -596,3 +596,11 @@ Branch `claude/step-6-expenses-cashbook-reports`; প্ল্যান `docs/pl
 - **CommissionReceipt-এর auto-entry**-এর জন্য `createReceipt()`-কে এখন `db.$transaction`-এ ঢোকানো হলো (আগে ছিল না) আর কন্ট্রোলারে `@CurrentAuth()` যুক্ত হলো (`createdBy`-র জন্য actor প্রয়োজন ছিল, আগে কোনো actor parameter-ই ছিল না)। `method` সবসময় `null` (এই মডেলে কোনো payment-method কলাম নেই)।
 - **হাতে দেওয়া entry-র `method` ভ্যালিডেশন** `config.collectionMethods`-এর বিপরীতে (কোনো আলাদা "ledger methods" তালিকা নেই, এক্সপেন্স-এর মতো `collectionMethods` fallback নিয়ম অনুসরণ করা হলো)।
 - **docs/API.md পুনঃক্রমায়ন**: নতুন `## ১৪. হিসাব (Accounts)` আগের `১৪` (ত্রুটির রূপ ও কোড) আর `১৫` (রোল ও অনুমতি)-কে `১৫`/`১৬`-এ ঠেলে দিয়েছে; সূচি ও ভেতরের cross-reference ("অংশ ১৪/১৬") হালনাগাদ হয়েছে।
+
+## ২০২৬-১১-২১: Render production স্টার্ট-আপ স্ক্রিপ্ট
+
+Neon-এ কোনো table না থাকার মূল কারণ: Render-এর Start Command-এ migration চালানোর কোনো ধাপই যুক্ত ছিল না (এটা মালিকের বর্তমান Render dashboard-এর সেটিং, রেপোর কোনো ফাইলে ছিল না) — `prisma migrate deploy` স্থানীয়ভাবে খালি ডাটাবেসে পরীক্षা করে দেখা গেছে সব ১১টা migration ঠিকমতো চলে।
+
+- **`prisma/setup.mjs`** যোগ হলো: `prisma migrate deploy` → (ADMIN_EMAIL/ADMIN_PHONE + ADMIN_PASSWORD সেট থাকলে) `admin-create.mjs` চালায় (আগে থেকে থাকলে নিজেই skip করে) → `node dist/main.js`। migration ব্যর্থ হলে প্রসেস বন্ধ হয়ে যায়; admin env ভ্যারিয়েবল না থাকলে বা admin তৈরিতে সমস্যা হলে শুধু লগ করে server তবু চালু হয় (health check যেন বন্ধ না হয়)।
+- `package.json`-এ `start:render` script (`node prisma/setup.mjs`) যোগ হলো — মালিক Render dashboard-এ Start Command `node prisma/setup.mjs` বসাবেন।
+- Server-কে `child_process.spawn` দিয়ে চালানো হলো (exec নয়, কারণ ESM-এ `exec*` নেই) আর SIGTERM/SIGINT forward করা হয় যাতে Render-এর graceful shutdown ঠিকমতো কাজ করে।
