@@ -3,13 +3,26 @@
 //    gets its tables before anything else runs. This step must fail loudly
 //    and stop the process: the server must never start against a database
 //    that is missing tables.
-// 2. Creates the first platform owner from ADMIN_EMAIL/ADMIN_PHONE,
+// 2. Seeds base data (`prisma/seed.mjs`) — most importantly the default
+//    `roles` rows (owner/manager/accountant/salesman). This is idempotent
+//    (`ON CONFLICT ... DO NOTHING`), so it is safe on every deploy, including
+//    against a database that already has this data. Roles must exist before
+//    the server starts: `PermissionSyncService` (run at app bootstrap) grants
+//    each permission's default roles by looking up `Role` rows by key, and
+//    `AccessResolverService` does `role.findUniqueOrThrow({ key: 'owner' })`
+//    on every access check — both fail if `roles` is empty, e.g. after a
+//    database was truncated down to its tables. This step must also fail
+//    loudly and stop the process.
+// 3. Creates the first platform owner from ADMIN_EMAIL/ADMIN_PHONE,
 //    ADMIN_PASSWORD, ADMIN_NAME if one does not already exist (delegates to
 //    `admin-create.mjs`, which is itself idempotent and safe to run on every
 //    deploy). Missing or invalid admin variables are logged and skipped
 //    rather than blocking the server from starting.
-// 3. Starts the server (`node dist/main`), forwarding its exit code and
-//    signals so Render's process management works as expected.
+// 4. Starts the server (`node dist/main`), forwarding its exit code and
+//    signals so Render's process management works as expected. On boot,
+//    `PermissionSyncService` syncs the `permissions` table from the in-code
+//    permission registry and grants default role-permission mappings for
+//    every existing business, now that the roles seeded in step 2 exist.
 import { existsSync } from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
 
@@ -80,6 +93,10 @@ if (!prismaCliPresent) {
 // local CLI is somehow gone despite the check above, this fails loudly instead
 // of running a different, unpinned prisma version.
 if (!run('applying migrations', 'npx', ['--no-install', 'prisma', 'migrate', 'deploy'])) {
+  process.exit(1);
+}
+
+if (!run('seeding base data (roles, first business)', 'node', ['prisma/seed.mjs'])) {
   process.exit(1);
 }
 
