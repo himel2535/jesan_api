@@ -604,3 +604,12 @@ Neon-এ কোনো table না থাকার মূল কারণ: Rende
 - **`prisma/setup.mjs`** যোগ হলো: `prisma migrate deploy` → (ADMIN_EMAIL/ADMIN_PHONE + ADMIN_PASSWORD সেট থাকলে) `admin-create.mjs` চালায় (আগে থেকে থাকলে নিজেই skip করে) → `node dist/main.js`। migration ব্যর্থ হলে প্রসেস বন্ধ হয়ে যায়; admin env ভ্যারিয়েবল না থাকলে বা admin তৈরিতে সমস্যা হলে শুধু লগ করে server তবু চালু হয় (health check যেন বন্ধ না হয়)।
 - `package.json`-এ `start:render` script (`node prisma/setup.mjs`) যোগ হলো — মালিক Render dashboard-এ Start Command `node prisma/setup.mjs` বসাবেন।
 - Server-কে `child_process.spawn` দিয়ে চালানো হলো (exec নয়, কারণ ESM-এ `exec*` নেই) আর SIGTERM/SIGINT forward করা হয় যাতে Render-এর graceful shutdown ঠিকমতো কাজ করে।
+
+## ২০২৬-১১-২১ (২): Render-এ এখনও table তৈরি না হওয়া — `prisma` ভুল dependency গ্রুপে ছিল
+
+আগের `prisma/setup.mjs`-এ migration ধাপ থাকলেও Render-এ এখনও কোনো table তৈরি হচ্ছিল না। কারণ: `prisma` CLI প্যাকেজটা `devDependencies`-এ ছিল, আর Render-এর production install (`NODE_ENV=production`) devDependencies বাদ দেয়। ফলে `npx prisma migrate deploy` চালানোর সময় local prisma না পেয়ে npx নিজে থেকে নেটওয়ার্ক থেকে অন্য (সম্ভবত ভিন্ন/RC) ভার্সন নামানোর চেষ্টা করত বা ব্যর্থ হতো — কোনোভাবেই নির্ভরযোগ্যভাবে migration চলছিল না, অথচ server তারপরও চালু হয়ে যাচ্ছিল (health check সবুজ দেখাচ্ছিল, কিন্তু table ছাড়া)।
+
+- **`prisma`-কে `devDependencies` থেকে `dependencies`-এ সরানো হলো** (version অপরিবর্তিত, `7.10.1`) — এখন production install-এও এটা থাকবে।
+- **`setup.mjs`-এ শুরুতেই verbose logging** যোগ হলো: node version, cwd, `NODE_ENV`, `DATABASE_URL`/`DIRECT_URL` সেট আছে কিনা (মাস্কড হোস্ট+পাথ, কখনো পুরো connection string নয়), local prisma CLI (`node_modules/.bin/prisma`) ও `dist/main.js` আছে কিনা — Render log-এ ঠিক কোন ধাপে সমস্যা তা সহজে বোঝা যাবে।
+- **`DATABASE_URL`/`DIRECT_URL` দুটোই না থাকলে** বা **local prisma CLI না পাওয়া গেলে** migration চালানোর আগেই স্পষ্ট error দিয়ে `exit(1)` — আগে এই checkগুলো ছিল না, ব্যর্থতা prisma-র নিজের (কম স্পষ্ট) error-এর উপর নির্ভর করত।
+- **`npx prisma` → `npx --no-install prisma`**: local prisma না থাকলে npx যেন কখনো নেটওয়ার্ক থেকে অন্য ভার্সন না নামায় (উপরের dependency-গ্রুপ পরিবর্তনের পরেও একটা নিরাপত্তা-জাল হিসেবে)।
