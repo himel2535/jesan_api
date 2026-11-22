@@ -468,6 +468,117 @@ describe.skipIf(!hasDatabase)('purchases', () => {
     });
   });
 
+  describe('GET purchases/summary', () => {
+    it('aggregates active purchases in range, hiding the amount without product.cost.view', async () => {
+      const shopSummary = await data.createBusiness('buy-summary');
+      await runSeed();
+      const category = (
+        (
+          await send(t.server, 'post', path('product-categories', shopSummary.slug), who('owner'), {
+            nameEn: 'C',
+            nameBn: 'C',
+          }).expect(201)
+        ).body as { id: string }
+      ).id;
+      const a = await newProduct(shopSummary.slug, category);
+      await buy(
+        'owner',
+        [{ productId: a, quantity: '10', unitPrice: '100' }],
+        { purchaseDate: TODAY },
+        {},
+        shopSummary.slug,
+      ).expect(201);
+      await buy(
+        'owner',
+        [{ productId: a, quantity: '5', unitPrice: '100' }],
+        { purchaseDate: addDays(TODAY, -10) },
+        {},
+        shopSummary.slug,
+      ).expect(201);
+      const voided = (
+        await buy(
+          'owner',
+          [{ productId: a, quantity: '99', unitPrice: '100' }],
+          { purchaseDate: TODAY },
+          {},
+          shopSummary.slug,
+        ).expect(201)
+      ).body as PurchaseBody;
+      await send(
+        t.server,
+        'post',
+        path(`purchases/${voided.id}/void`, shopSummary.slug),
+        who('owner'),
+        { reason: 'test' },
+      ).expect(200);
+
+      const todayOnly = await get(
+        t.server,
+        path(`purchases/summary?from=${TODAY}&to=${TODAY}`, shopSummary.slug),
+        who('owner'),
+      ).expect(200);
+      expect(todayOnly.body).toMatchObject({
+        from: TODAY,
+        to: TODAY,
+        count: 1,
+        totalQuantity: '10',
+        totalAmount: '1000.00',
+      });
+
+      const wholeRange = await get(
+        t.server,
+        path(`purchases/summary?from=${addDays(TODAY, -10)}&to=${TODAY}`, shopSummary.slug),
+        who('owner'),
+      ).expect(200);
+      expect(wholeRange.body).toMatchObject({
+        count: 2,
+        totalQuantity: '15',
+        totalAmount: '1500.00',
+      });
+
+      // Give the salesman purchase.view only, in this business (role permissions are per-business).
+      const matrix = await get(
+        t.server,
+        path('roles/permissions', shopSummary.slug),
+        who('owner'),
+      ).expect(200);
+      const salesman =
+        (matrix.body as { roles: { key: string; permissions: string[] }[] }).roles.find(
+          (role) => role.key === 'salesman',
+        )?.permissions ?? [];
+      await send(
+        t.server,
+        'put',
+        path('roles/salesman/permissions', shopSummary.slug),
+        who('owner'),
+        { permissions: [...salesman, 'purchase.view'] },
+      ).expect(200);
+      await member('summarySalesman', 'salesman', shopSummary.id);
+      const hidden = await get(
+        t.server,
+        path(`purchases/summary?from=${TODAY}&to=${TODAY}`, shopSummary.slug),
+        who('summarySalesman'),
+      ).expect(200);
+      expect(hidden.body).toMatchObject({ count: 1, totalQuantity: '10' });
+      expect(hidden.body).not.toHaveProperty('totalAmount');
+      await send(
+        t.server,
+        'put',
+        path('roles/salesman/permissions', shopSummary.slug),
+        who('owner'),
+        { permissions: salesman },
+      ).expect(200);
+    });
+
+    it('requires purchase.view', async () => {
+      await get(
+        t.server,
+        path(`purchases/summary?from=${TODAY}&to=${TODAY}`),
+        who('accountant'),
+      ).expect(403);
+    });
+  });
+
   describe('permissions and isolation', () => {
     it('lets only purchase.create (with cost view) buy, and purchase.view read', async () => {
       const opc = await newProduct();

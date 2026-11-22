@@ -24,7 +24,13 @@ import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { Actor, PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
 import { StockLedger, quantityString } from '../stock/stock-ledger';
-import { CreatePurchaseDto, PurchaseListQueryDto, UpdatePurchaseDto } from './dto/requests';
+import { resolveDateRange } from '../business-dates';
+import {
+  CreatePurchaseDto,
+  PurchaseListQueryDto,
+  PurchaseSummaryQueryDto,
+  UpdatePurchaseDto,
+} from './dto/requests';
 
 export const PURCHASE_CODE_WIDTH = 4;
 export const PURCHASE_COUNTER_TABLE = 'monthly_purchase_counters';
@@ -368,6 +374,25 @@ export class PurchasesService {
       page: query.page,
       pageSize: PAGE_SIZE,
       total,
+    };
+  }
+
+  /** Aggregate totals (active purchases only) for the KPI cards; `totalAmount` is serialized only with `product.cost.view`. */
+  async summary(access: BusinessAccess, query: PurchaseSummaryQueryDto) {
+    const config = await this.context.config(access.businessId);
+    const { from, to } = resolveDateRange(query, config.timezone);
+    const db = this.prisma.forBusiness(access.businessId);
+    const totals = await db.purchase.aggregate({
+      where: { status: 'active', purchaseDate: { gte: toDbDate(from), lte: toDbDate(to) } },
+      _count: true,
+      _sum: { totalQuantity: true, totalAmount: true },
+    });
+    return {
+      from,
+      to,
+      count: totals._count,
+      totalQuantity: quantityString(totals._sum.totalQuantity ?? new Prisma.Decimal(0)),
+      totalAmount: moneyString(totals._sum.totalAmount ?? new Prisma.Decimal(0)),
     };
   }
 
