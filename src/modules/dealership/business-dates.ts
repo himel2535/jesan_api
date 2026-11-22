@@ -48,9 +48,6 @@ export function checkBusinessDate(
   return value;
 }
 
-/** The longest span a read-only report or the cash book may cover at once. */
-export const MAX_RANGE_DAYS = 400;
-
 export interface DateRange {
   from: string;
   to: string;
@@ -65,9 +62,11 @@ export function daysBetween(from: string, to: string): number {
 
 /**
  * The date range of a read-only report: what was asked, or this month in the
- * business's time zone. `to` is never before `from`, and the span is capped so
- * one page can never read the whole table.
- * Codes: `FROM_INVALID` / `TO_INVALID` / `RANGE_TOO_LARGE`.
+ * business's time zone. `to` is never before `from`. The span is not capped —
+ * a caller may ask for the business's full lifetime — because every consumer
+ * still paginates its rows/groups at `PAGE_SIZE`, so a wider span only grows
+ * the aggregate scan, not the response size.
+ * Codes: `FROM_INVALID` / `TO_INVALID`.
  */
 export function resolveDateRange(
   query: { from?: string | undefined; to?: string | undefined },
@@ -84,13 +83,6 @@ export function resolveDateRange(
   const to = query.to ?? (today > from ? today : from);
   if (to < from) {
     throw badRequest('TO_INVALID', 'The end date cannot be before the start date', 'to');
-  }
-  if (daysBetween(from, to) + 1 > MAX_RANGE_DAYS) {
-    throw badRequest(
-      'RANGE_TOO_LARGE',
-      `At most ${String(MAX_RANGE_DAYS)} days can be read at once`,
-      'to',
-    );
   }
   return { from, to };
 }

@@ -450,8 +450,9 @@ export class ReportsService {
       };
     }
 
-    // month: grouped by calendar date, then folded into YYYYMM in JS (the
-    // range is capped at MAX_RANGE_DAYS, so this reduce is always small).
+    // month: grouped by calendar date, then folded into YYYYMM in JS (one
+    // group per active day in the range, so this reduce stays small even
+    // over a business's full lifetime).
     const rows = await db.expense.groupBy({
       by: ['expenseDate'],
       where: { status: 'active', expenseDate: range },
