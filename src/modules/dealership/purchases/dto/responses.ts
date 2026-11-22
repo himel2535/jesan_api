@@ -52,6 +52,15 @@ export class PurchaseListResponse {
   @Expose() total!: number;
 }
 
+/** A plain aggregate over active purchases in a date range; `totalAmount` needs `product.cost.view`. */
+export class PurchaseSummaryResponse {
+  @Expose() from!: string;
+  @Expose() to!: string;
+  @Expose() count!: number;
+  @Expose() totalQuantity!: string;
+  @VisibleWith('product.cost.view') totalAmount!: string;
+}
+
 export class PurchaseResponse extends PurchaseListItemResponse {
   @Expose() note!: string | null;
   @Expose() version!: number;

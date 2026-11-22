@@ -102,6 +102,16 @@ export class PurchaseListQueryDto {
   status?: 'active' | 'void';
 }
 
+export class PurchaseSummaryQueryDto {
+  @IsOptional()
+  @Matches(DATE_PATTERN, { message: `from ${DATE_MESSAGE}` })
+  from?: string;
+
+  @IsOptional()
+  @Matches(DATE_PATTERN, { message: `to ${DATE_MESSAGE}` })
+  to?: string;
+}
+
 export class VoidPurchaseDto {
   @Transform(trim)
   @IsString()

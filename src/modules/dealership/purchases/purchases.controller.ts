@@ -22,10 +22,16 @@ import {
   CounterQueryDto,
   CreatePurchaseDto,
   PurchaseListQueryDto,
+  PurchaseSummaryQueryDto,
   UpdatePurchaseDto,
   VoidPurchaseDto,
 } from './dto/requests';
-import { PurchaseCounterResponse, PurchaseListResponse, PurchaseResponse } from './dto/responses';
+import {
+  PurchaseCounterResponse,
+  PurchaseListResponse,
+  PurchaseResponse,
+  PurchaseSummaryResponse,
+} from './dto/responses';
 import { PurchasesService } from './purchases.service';
 
 function actorOf(auth: AuthContext, request: AppRequest): Actor {
@@ -63,6 +69,14 @@ export class PurchasesController {
   @SerializeWith(PurchaseListResponse)
   list(@CurrentAccess() access: BusinessAccess, @Query() query: PurchaseListQueryDto) {
     return this.purchases.list(access, query);
+  }
+
+  /** A literal segment, so it must be declared before `:id` or it would be read as an id. */
+  @Get('summary')
+  @RequirePermission('purchase.view')
+  @SerializeWith(PurchaseSummaryResponse)
+  summary(@CurrentAccess() access: BusinessAccess, @Query() query: PurchaseSummaryQueryDto) {
+    return this.purchases.summary(access, query);
   }
 
   @Get(':id')
