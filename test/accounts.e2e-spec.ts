@@ -259,15 +259,9 @@ describe.skipIf(!hasDatabase)('accounts (business ledger)', () => {
       expect(byTypeOnly.items.every((row) => row.type === 'expense')).toBe(true);
     });
 
-    it('refuses a range over 400 days', async () => {
-      const tooWide = (
-        await get(
-          t.server,
-          path(`accounts/ledger?from=${addDays(TODAY, -401)}&to=${TODAY}`),
-          who('accountant'),
-        ).expect(400)
-      ).body as ErrorBody;
-      expect(tooWide).toMatchObject({ code: 'RANGE_TOO_LARGE', field: 'to' });
+    it('accepts a lifetime-wide range instead of capping it at 400 days', async () => {
+      const lifetime = await ledger(`?from=${addDays(TODAY, -4000)}&to=${TODAY}`);
+      expect(lifetime.total).toBeGreaterThanOrEqual(12);
     });
 
     it('never shows another business’s entries', async () => {

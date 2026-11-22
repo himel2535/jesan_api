@@ -307,7 +307,7 @@ describe.skipIf(!hasDatabase)('reports', () => {
     expect(owner.cash?.closingBalance).toBeDefined();
   });
 
-  it('refuses a bad groupBy, a backwards range, and too wide a range', async () => {
+  it('refuses a bad groupBy and a backwards range, but accepts a lifetime-wide one', async () => {
     const bad = (
       await get(t.server, path('reports/sales?groupBy=nonsense'), who('owner')).expect(400)
     ).body as ErrorBody;
@@ -322,14 +322,25 @@ describe.skipIf(!hasDatabase)('reports', () => {
     ).body as ErrorBody;
     expect(backwards).toMatchObject({ code: 'TO_INVALID', field: 'to' });
 
-    const tooWide = (
+    // The range is no longer capped at 400 days: a lifetime-wide request
+    // succeeds and returns the same total as the single day it actually
+    // happened on (all of this suite's seed data is dated "today").
+    const today = (
       await get(
         t.server,
-        path(`reports/sales?from=${addDays(TODAY, -401)}&to=${TODAY}`),
+        path(`reports/sales?groupBy=date&from=${TODAY}&to=${TODAY}`),
         who('owner'),
-      ).expect(400)
-    ).body as ErrorBody;
-    expect(tooWide).toMatchObject({ code: 'RANGE_TOO_LARGE', field: 'to' });
+      ).expect(200)
+    ).body as SalesReportBody;
+    const lifetime = (
+      await get(
+        t.server,
+        path(`reports/sales?from=${addDays(TODAY, -4000)}&to=${TODAY}`),
+        who('owner'),
+      ).expect(200)
+    ).body as SalesReportBody;
+    expect(lifetime.totalAmount).toBe(today.totalAmount);
+    expect(lifetime.totalQuantity).toBe(today.totalQuantity);
   });
 
   it('is closed to a salesman', async () => {

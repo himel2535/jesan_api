@@ -206,19 +206,16 @@ describe.skipIf(!hasDatabase)('cash book', () => {
     expect(after.totals.collections).toBe(before.totals.collections);
   });
 
-  it('defaults to this month and caps the range at 400 days', async () => {
+  it('defaults to this month and accepts a lifetime-wide range', async () => {
     const book = await cashBook('');
     expect(book.from).toBe(`${TODAY.slice(0, 7)}-01`);
     expect(book.to).toBe(TODAY);
 
-    const tooWide = (
-      await get(
-        t.server,
-        path(`cash-book?from=${addDays(TODAY, -401)}&to=${TODAY}`),
-        who('owner'),
-      ).expect(400)
-    ).body as ErrorBody;
-    expect(tooWide).toMatchObject({ code: 'RANGE_TOO_LARGE', field: 'to' });
+    // The range is no longer capped at 400 days: a lifetime-wide request
+    // succeeds, and its closing balance matches the this-month view's (no
+    // activity happened before this month in this suite's seed data).
+    const lifetime = await cashBook(`?from=${addDays(TODAY, -4000)}&to=${TODAY}`);
+    expect(lifetime.closingBalance).toBe(book.closingBalance);
 
     const backwards = (
       await get(
