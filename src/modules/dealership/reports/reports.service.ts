@@ -77,6 +77,59 @@ export class ReportsService {
     }
 
     if (query.groupBy === 'customer') {
+      // `sort=quantity` (e.g. a "top customers by bags" widget) needs line
+      // items filtered to the business's own sale unit (its `defaultUnitKey`,
+      // e.g. "bag") so mixed-unit deliveries never get summed as one
+      // meaningless quantity. The default `sort=amount` keeps the original
+      // delivery-header totals (every unit, unchanged for existing callers).
+      if (query.sort === 'quantity') {
+        const itemRows = await db.deliveryItem.groupBy({
+          by: ['deliveryId'],
+          where: {
+            status: 'active',
+            delivery: { status: 'active', deliveryDate: range },
+            product: { unitKey: config.defaultUnitKey },
+          },
+          _sum: { quantity: true, lineTotal: true },
+        });
+        const deliveries = await db.delivery.findMany({
+          where: { id: { in: itemRows.map((row) => row.deliveryId) } },
+          select: { id: true, customerId: true },
+        });
+        const customerOfDelivery = new Map(deliveries.map((row) => [row.id, row.customerId]));
+        const byCustomer = new Map<string, { quantity: Prisma.Decimal; amount: Prisma.Decimal }>();
+        for (const row of itemRows) {
+          const customerId = customerOfDelivery.get(row.deliveryId);
+          if (!customerId) continue;
+          const bucket = byCustomer.get(customerId) ?? { quantity: ZERO, amount: ZERO };
+          bucket.quantity = bucket.quantity.add(row._sum.quantity ?? ZERO);
+          bucket.amount = bucket.amount.add(row._sum.lineTotal ?? ZERO);
+          byCustomer.set(customerId, bucket);
+        }
+        const customers = await db.customer.findMany({
+          where: { id: { in: [...byCustomer.keys()] } },
+          select: { id: true, code: true, nameEn: true },
+        });
+        const nameOf = new Map(customers.map((row) => [row.id, `${row.code} ${row.nameEn}`]));
+        const sorted = [...byCustomer.entries()]
+          .map(([customerId, sums]) => ({
+            key: customerId,
+            label: nameOf.get(customerId) ?? customerId,
+            quantity: sums.quantity,
+            amount: sums.amount,
+          }))
+          .sort((a, b) => b.quantity.comparedTo(a.quantity));
+        const page = sorted.slice((query.page - 1) * PAGE_SIZE, query.page * PAGE_SIZE);
+        const totals = sorted.reduce(
+          (acc, row) => ({
+            quantity: acc.quantity.add(row.quantity),
+            amount: acc.amount.add(row.amount),
+          }),
+          { quantity: ZERO, amount: ZERO },
+        );
+        return this.salesResult(from, to, query.page, sorted.length, page, totals, 'customer');
+      }
+
       const [rows, total] = await Promise.all([
         db.delivery.groupBy({
           by: ['customerId'],
