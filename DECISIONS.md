@@ -632,3 +632,13 @@ Neon-এ কোনো table না থাকার মূল কারণ: Rende
 - `RANGE_TOO_LARGE` error code বাতিল (`docs/API.md`, তিনটা e2e spec) — এটা শুধু এই cap থেকেই ছোঁড়া হতো।
 - `entryDate`/`collectionDate`/`expenseDate`/`purchaseDate`/`deliveryDate`-এ `businessId`-সহ composite index আগে থেকেই আছে (`prisma/schema.prisma`-এ `@@index([businessId, ...Date(sort: Desc), ...])`), তাই lifetime-wide scan-ও index-ব্যাকড থাকে — নতুন migration লাগেনি।
 - **`GET purchases/summary?from=&to=` যোগ হলো** (frontend-এর KPI কার্ডের জন্য) `purchases` controller-এ, `reports/*`-এ নয় — `reports/*`-এর কোনো endpoint কখনো কেনা-দাম বহন করে না (ডকুমেন্টেড invariant, অংশ ৯), আর KPI কার্ডের "Total Purchase Amount" সরাসরি কেনা-দামের যোগফল। তাই `purchases` module-এর নিজের অনুমতি-মডেল পুনর্ব্যবহার করা হয়েছে: `purchase.view` দিয়ে endpoint, আর `totalAmount` ঘর `@VisibleWith('product.cost.view')` দিয়ে field-level gated — ঠিক যেমন `PurchaseListItemResponse.totalAmount` আগে থেকেই।
+
+## ২০২৬-১১-২৩: `reports/sales?groupBy=customer` এ `sort=` যোগ — "কোন গ্রাহক সবচেয়ে বেশি বস্তা কিনেছে"
+
+Frontend dashboard-এর "Top 5 Customers" widget-এর জন্য গ্রাহক-ভিত্তিক বিক্রয় র‍্যাঙ্কিং লাগে, বস্তার পরিমাণ (টাকার অঙ্ক নয়) অনুযায়ী সাজানো, এবং মিশ্র-একক ডেলিভারিতে একক না মিলিয়ে ভুল যোগফল না হয়ে।
+
+- **নতুন `sort` query param** (`amount` ডিফল্ট, `quantity` নতুন), শুধু `groupBy=customer`-এ পড়া হয়। `sort=amount` (ডিফল্ট) **অপরিবর্তিত**: আগের মতো delivery-header level (`delivery.totalQuantity`/`totalAmount`, সব একক একসাথে) — বিদ্যমান e2e assertion (`byCustomer.totalAmount === byDate.totalAmount`) অক্ষত।
+- **`sort=quantity`** একটা আলাদা কোড-পথ: `deliveryItem`-ভিত্তিক, ব্যবসার নিজের `config.defaultUnitKey`-এর (`GET product-units`-এর `defaultUnitKey`, Akij-এ `"bag"`) লাইন-আইটেমে ফিল্টার করে, তারপর delivery→customer ম্যাপিং করে গ্রাহক-ভিত্তিক যোগফল বানায়। **কোড-এ `'bag'` স্ট্রিং হার্ডকোড করা হয়নি** — `defaultUnitKey` ব্যবহার করা হয়েছে, যাতে অন্য একক-ভিত্তিক dealership ব্যবসাতেও (যেমন `ton`) এটা সঠিকভাবে কাজ করে (architecture rule: `src/modules/dealership` কোনো নির্দিষ্ট ব্যবসার নাম/একক-এ বাঁধা থাকবে না)।
+- `sort=quantity`-তে `totalQuantity`/`totalAmount`-ও একই ফিল্টার করা deliveryItem-যোগফল থেকে (যাতে `items[]`-এর যোগফল আর ঘোষিত total মিলে যায়), `sort=amount`-এর মতো `totalsOfDeliveries()` (সব একক) থেকে নয়।
+- `status: 'active'` ফিল্টার (বাতিল/void ডেলিভারি ও লাইন বাদ) দুই পথেই অক্ষত — নতুন কিছু যোগ করা হয়নি, শুধু বিদ্যমান ফিল্টার নতুন কোড-পথে বজায় রাখা হয়েছে।
+- নতুন e2e test (`test/reports.e2e-spec.ts`): দুই-একক ব্যবসা (bag + ton) বানিয়ে প্রমাণ করা হয়েছে যে ton-লাইন `sort=quantity`-র quantity ও amount দুটো থেকেই বাদ পড়ে, অথচ `sort=amount`-এ (ডিফল্ট) সেটা গোনা হয়।

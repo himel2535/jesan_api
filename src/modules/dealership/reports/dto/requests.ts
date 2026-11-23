@@ -23,10 +23,16 @@ class RangeQuery extends PageQuery {
 }
 
 export const SALES_GROUP_BY = ['date', 'customer', 'product', 'category'] as const;
+export const SALES_CUSTOMER_SORT = ['amount', 'quantity'] as const;
 export class SalesReportQueryDto extends RangeQuery {
   @IsOptional()
   @IsIn(SALES_GROUP_BY)
   groupBy: (typeof SALES_GROUP_BY)[number] = 'date';
+
+  /** Only read for `groupBy=customer`; every other groupBy ignores it. */
+  @IsOptional()
+  @IsIn(SALES_CUSTOMER_SORT)
+  sort: (typeof SALES_CUSTOMER_SORT)[number] = 'amount';
 }
 
 export const COLLECTIONS_GROUP_BY = ['date', 'method'] as const;

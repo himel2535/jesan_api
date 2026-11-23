@@ -218,6 +218,145 @@ describe.skipIf(!hasDatabase)('reports', () => {
       expect(row).not.toHaveProperty('unitCost');
       expect(row).not.toHaveProperty('profit');
     });
+
+    it('groupBy=customer&sort=quantity ranks by the default-unit quantity only, ignoring other units', async () => {
+      const unitsShop = await data.createBusiness('units', {
+        units: [
+          { key: 'bag', nameEn: 'Bag', nameBn: 'বস্তা', decimals: 0 },
+          { key: 'ton', nameEn: 'Ton', nameBn: 'টন', decimals: 2 },
+        ],
+        defaultUnit: 'bag',
+        principalSupplier: { nameEn: 'Principal Co', nameBn: 'প্রধান কোম্পানি' },
+      });
+      // `createBusiness` only writes the `businesses` row; the principal
+      // supplier (and default expense categories) are materialized from
+      // `config.principalSupplier` by the idempotent seed, same as `shop` in
+      // this file's own `beforeAll` (which re-runs it right after creating
+      // `shop` for exactly this reason).
+      await runSeed();
+      const unitsPath = (suffix: string) => `/b/${unitsShop.slug}/${suffix}`;
+      const unitsPost = (suffix: string, body: object) =>
+        request(t.server)
+          .post(`/api/v1${unitsPath(suffix)}`)
+          .set('Cookie', cookieHeader(who('owner')))
+          .send(body);
+
+      const unitsCategoryId = (
+        (
+          await send(t.server, 'post', unitsPath('product-categories'), who('owner'), {
+            nameEn: 'OPC',
+            nameBn: 'ওপিসি',
+          }).expect(201)
+        ).body as { id: string }
+      ).id;
+      const bagProductId = (
+        (
+          await send(t.server, 'post', unitsPath('products'), who('owner'), {
+            categoryId: unitsCategoryId,
+            nameEn: 'Cement Bag',
+            nameBn: 'সিমেন্ট বস্তা',
+            unitKey: 'bag',
+          }).expect(201)
+        ).body as { id: string }
+      ).id;
+      const tonProductId = (
+        (
+          await send(t.server, 'post', unitsPath('products'), who('owner'), {
+            categoryId: unitsCategoryId,
+            nameEn: 'Bulk Cement',
+            nameBn: 'খোলা সিমেন্ট',
+            unitKey: 'ton',
+          }).expect(201)
+        ).body as { id: string }
+      ).id;
+      await unitsPost('purchases', {
+        items: [
+          { productId: bagProductId, quantity: '500', unitPrice: '500' },
+          { productId: tonProductId, quantity: '50', unitPrice: '9000' },
+        ],
+      }).expect(201);
+
+      // Customer A: 50 bags + 5 tons in one order (the ton line must not
+      // inflate "bags sold"). Customer B: 80 bags only, so B ranks first.
+      const customerA = (
+        (
+          await send(t.server, 'post', unitsPath('customers'), who('owner'), {
+            nameEn: 'Mixed Unit Buyer',
+            phone: newPhone(),
+          }).expect(201)
+        ).body as { id: string }
+      ).id;
+      const customerB = (
+        (
+          await send(t.server, 'post', unitsPath('customers'), who('owner'), {
+            nameEn: 'Bag Only Buyer',
+            phone: newPhone(),
+          }).expect(201)
+        ).body as { id: string }
+      ).id;
+
+      const orderA = (
+        await unitsPost('orders', {
+          customerId: customerA,
+          deliveryWindow: 'today',
+          items: [
+            { productId: bagProductId, quantity: '50', unitPrice: '600' },
+            { productId: tonProductId, quantity: '5', unitPrice: '10000' },
+          ],
+        }).expect(201)
+      ).body as { id: string; items: { id: string }[] };
+      await unitsPost('deliveries', {
+        orderId: orderA.id,
+        items: [
+          { orderItemId: orderA.items[0]?.id, quantity: '50' },
+          { orderItemId: orderA.items[1]?.id, quantity: '5' },
+        ],
+      }).expect(201);
+
+      const orderB = (
+        await unitsPost('orders', {
+          customerId: customerB,
+          deliveryWindow: 'today',
+          items: [{ productId: bagProductId, quantity: '80', unitPrice: '600' }],
+        }).expect(201)
+      ).body as { id: string; items: { id: string }[] };
+      await unitsPost('deliveries', {
+        orderId: orderB.id,
+        items: [{ orderItemId: orderB.items[0]?.id, quantity: '80' }],
+      }).expect(201);
+
+      const byQuantity = (
+        await get(
+          t.server,
+          unitsPath(`reports/sales?groupBy=customer&sort=quantity&from=${TODAY}&to=${TODAY}`),
+          who('owner'),
+        ).expect(200)
+      ).body as SalesReportBody;
+
+      const rowA = byQuantity.items.find((row) => row.label.includes('Mixed Unit Buyer'));
+      const rowB = byQuantity.items.find((row) => row.label.includes('Bag Only Buyer'));
+      expect(rowA?.quantity).toBe('50'); // the 5-ton line is excluded from the bag count
+      expect(rowA?.amount).toBe('30000.00'); // 50 × 600, the ton line's amount excluded too
+      expect(rowB?.quantity).toBe('80');
+      expect(rowB?.amount).toBe('48000.00');
+      // Sorted by bags descending: B (80) before A (50).
+      const indexA = byQuantity.items.findIndex((row) => row.label.includes('Mixed Unit Buyer'));
+      const indexB = byQuantity.items.findIndex((row) => row.label.includes('Bag Only Buyer'));
+      expect(indexB).toBeLessThan(indexA);
+      expect(byQuantity.totalQuantity).toBe('130'); // 50 + 80 bags, tons excluded
+
+      // sort=amount (the default) is untouched: it still uses delivery-header
+      // totals across every unit, so the ton line counts there.
+      const byAmount = (
+        await get(
+          t.server,
+          unitsPath(`reports/sales?groupBy=customer&from=${TODAY}&to=${TODAY}`),
+          who('owner'),
+        ).expect(200)
+      ).body as SalesReportBody;
+      const amountRowA = byAmount.items.find((row) => row.label.includes('Mixed Unit Buyer'));
+      expect(amountRowA?.amount).toBe('80000.00'); // 50×600 + 5×10000, tons included
+    });
   });
 
   it('collections report groups by date and by method', async () => {
