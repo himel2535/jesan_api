@@ -642,3 +642,11 @@ Frontend dashboard-এর "Top 5 Customers" widget-এর জন্য গ্র
 - `sort=quantity`-তে `totalQuantity`/`totalAmount`-ও একই ফিল্টার করা deliveryItem-যোগফল থেকে (যাতে `items[]`-এর যোগফল আর ঘোষিত total মিলে যায়), `sort=amount`-এর মতো `totalsOfDeliveries()` (সব একক) থেকে নয়।
 - `status: 'active'` ফিল্টার (বাতিল/void ডেলিভারি ও লাইন বাদ) দুই পথেই অক্ষত — নতুন কিছু যোগ করা হয়নি, শুধু বিদ্যমান ফিল্টার নতুন কোড-পথে বজায় রাখা হয়েছে।
 - নতুন e2e test (`test/reports.e2e-spec.ts`): দুই-একক ব্যবসা (bag + ton) বানিয়ে প্রমাণ করা হয়েছে যে ton-লাইন `sort=quantity`-র quantity ও amount দুটো থেকেই বাদ পড়ে, অথচ `sort=amount`-এ (ডিফল্ট) সেটা গোনা হয়।
+
+## ২০২৬-১১-২৬ — Dashboard read endpoints (cashbook, monthly series, commission series)
+
+- `GET dashboard/cashbook`: খাতা (`business_ledger_entries`) থেকে সরাসরি; নগদ/ব্যাংক/পদ্ধতিহীন তিনটা আলাদা বালতি, যাতে তিনটার যোগফল পুরো খাতার সমান থাকে। পদ্ধতিহীন সারি (কমিশন রসিদ) কখনো নগদ বা ব্যাংকে যোগ হয় না। বিদ্যমান `cash-book` endpoint অপরিবর্তিত (সেটা শুধু আদায়/খরচ/নগদ কেনা গোনে)।
+- `GET dashboard/monthly-series`: বছরের প্রতিটা তারিখের জন্য একটা `GROUP BY` (সর্বোচ্চ ৩৬৬ সারি), মাসে ভাগ JavaScript-এ `Decimal`-এ। কেনার টাকা `@VisibleWith('product.cost.view')` দিয়ে সার্ভারে লুকানো।
+- `GET dashboard/commission-series`: owner-only (`commission.view`)। হিসাব হওয়া কমিশন এন্ট্রির `fromDate`-এর মাসে, পাওয়া কমিশন রসিদের `receivedDate`-এর মাসে; আলাদা রাখা, মেশানো হয় না। `receivable` = সব সময়ের হিসাব হওয়া − পাওয়া।
+- স্কিমা বা বিদ্যমান কোনো হিসাব বদলানো হয়নি; অনুমতি নতুন নেই (বিদ্যমান `cashbook.view`, `report.view`, `commission.view` ব্যবহৃত)।
+- স্থানীয় যাচাই PostgreSQL 16 দিয়ে (CI-তে 18); সব migration প্রয়োগ, `db:check` কোনো পার্থক্য দেখায়নি।
