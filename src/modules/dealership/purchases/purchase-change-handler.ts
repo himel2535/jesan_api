@@ -59,6 +59,8 @@ interface PurchaseState {
   code: string;
   status: string;
   purchaseDate: string;
+  /** Mirrored onto the purchase's general-ledger entry when it is restated. */
+  paymentMethod: string;
   createdAt: Date;
   timezone: string;
   lines: Line[];
@@ -128,6 +130,7 @@ export class PurchaseChangeHandler implements ChangeHandler {
           code: true,
           status: true,
           purchaseDate: true,
+          paymentMethod: true,
           note: true,
           supplierReference: true,
           version: true,
@@ -156,6 +159,7 @@ export class PurchaseChangeHandler implements ChangeHandler {
       code: purchase.code,
       status: purchase.status,
       purchaseDate: fromDbDate(purchase.purchaseDate),
+      paymentMethod: purchase.paymentMethod,
       createdAt: purchase.createdAt,
       timezone: config.timezone,
       lines: purchase.items.map((item) => ({
@@ -408,12 +412,13 @@ export class PurchaseChangeHandler implements ChangeHandler {
       (sum, line) => sum.add(next.quantities.get(line.id) ?? line.quantity),
       ZERO,
     );
+    const totalAmount = this.totalOf(state.lines, next.quantities, next.prices);
     await tx.purchase.update({
       where: { id },
       data: {
         purchaseDate: toDbDate(next.purchaseDate),
         totalQuantity,
-        totalAmount: this.totalOf(state.lines, next.quantities, next.prices),
+        totalAmount,
         ...('note' in values ? { note: values['note'] as string | null } : {}),
         ...('supplierReference' in values
           ? { supplierReference: values['supplierReference'] as string | null }
@@ -422,6 +427,26 @@ export class PurchaseChangeHandler implements ChangeHandler {
         updatedBy: ctx.actorUserId,
       },
     });
+
+    // The general ledger mirrors the purchase, so a correction restates its
+    // entry: without this the Accounts summary and ledger keep the old amount
+    // while the cash book (which counts the purchase rows themselves) shows the
+    // new one. Date changes move the entry with the purchase's own month.
+    if (next.purchaseDate !== state.purchaseDate || changedLines.length > 0) {
+      await this.businessLedger.restateByReference(
+        tx,
+        ctx.businessId,
+        ctx.actorUserId,
+        { referenceType: 'purchase', referenceId: id },
+        {
+          type: 'purchase',
+          direction: 'out',
+          amount: totalAmount,
+          method: state.paymentMethod,
+          entryDate: next.purchaseDate,
+        },
+      );
+    }
 
     // Counters by purchase month.
     for (const [period, delta] of this.counterChanges(state, next)) {

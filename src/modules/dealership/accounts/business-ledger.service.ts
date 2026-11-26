@@ -54,6 +54,39 @@ export class BusinessLedgerService {
     return row.id;
   }
 
+  /**
+   * Restates the active entry of a source document after it was corrected: the
+   * amount, and the date when the document moved to another day, so the entry
+   * keeps counting in the document's own month. Updates the row in place rather
+   * than adding a second one — the entry mirrors one document, so a correction
+   * is not a new money movement. Appends one when none is active, for documents
+   * recorded before their module wrote to the ledger.
+   */
+  async restateByReference(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    actorUserId: string,
+    reference: { referenceType: string; referenceId: string },
+    entry: Omit<LedgerEntryInput, 'referenceType' | 'referenceId'>,
+  ): Promise<void> {
+    const { count } = await tx.businessLedgerEntry.updateMany({
+      where: {
+        businessId,
+        referenceType: reference.referenceType,
+        referenceId: reference.referenceId,
+        status: 'active',
+      },
+      data: { amount: entry.amount, entryDate: toDbDate(entry.entryDate) },
+    });
+    if (count === 0) {
+      await this.append(tx, businessId, actorUserId, {
+        ...entry,
+        referenceType: reference.referenceType,
+        referenceId: reference.referenceId,
+      });
+    }
+  }
+
   /** Flips the active entry(ies) created for a source document to void. */
   async voidByReference(
     tx: Prisma.TransactionClient,
