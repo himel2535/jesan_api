@@ -650,3 +650,12 @@ Frontend dashboard-এর "Top 5 Customers" widget-এর জন্য গ্র
 - `GET dashboard/commission-series`: owner-only (`commission.view`)। হিসাব হওয়া কমিশন এন্ট্রির `fromDate`-এর মাসে, পাওয়া কমিশন রসিদের `receivedDate`-এর মাসে; আলাদা রাখা, মেশানো হয় না। `receivable` = সব সময়ের হিসাব হওয়া − পাওয়া।
 - স্কিমা বা বিদ্যমান কোনো হিসাব বদলানো হয়নি; অনুমতি নতুন নেই (বিদ্যমান `cashbook.view`, `report.view`, `commission.view` ব্যবহৃত)।
 - স্থানীয় যাচাই PostgreSQL 16 দিয়ে (CI-তে 18); সব migration প্রয়োগ, `db:check` কোনো পার্থক্য দেখায়নি।
+
+## ২০২৬-১১-২৭ — কেনা সংশোধনে general ledger হালনাগাদ (বাগ সংশোধন)
+
+- **বাগ**: `PurchaseChangeHandler.applyEdit` কখনো `business_ledger_entries` ছুঁত না, আর `BusinessLedgerService`-এ কোনো update পথও ছিল না (শুধু `append` ও `voidByReference`)। ফলে ৫৭,০০০ টাকার কেনা সংশোধন করে ৫০,৮৫০ করলেও Accounts-এ ৫৭,০০০-ই থাকত। ক্যাশ বই ঠিক ছিল (সে কেনার সারি সরাসরি গোনে), তাই দুটোর মধ্যে অমিল হতো — এই অমিলই ছিল লক্ষণ।
+- **সমাধান**: `BusinessLedgerService.restateByReference()` — সক্রিয় সারিটার `amount` (এবং তারিখ বদলালে `entryDate`) একই জায়গায় হালনাগাদ করে। নতুন সারি নয়, কারণ এন্ট্রিটা একটা দলিলেরই প্রতিচ্ছবি; সংশোধন নতুন টাকার চলাচল নয়। সক্রিয় সারি না থাকলে (ledger চালুর আগের কেনা) একটা append হয়।
+- **`entryDate`-ও বদলায়** কেনার তারিখ বদলালে, যাতে মাস-ভিত্তিক হিসাব (`accounts/summary?from=&to=`) কেনার নিজের মাসেই গোনে। এটা `monthly_purchase_counters`-এর বিদ্যমান আচরণের সাথে মেলে, যা বাতিলেও কেনার মূল মাস থেকেই বাদ দেয়।
+- **বাতিল অপরিবর্তিত**: `applyVoid` আগের মতোই `voidByReference` ডাকে — সেটা ঠিকই ছিল; টেস্ট দিয়ে পিন করা হয়েছে যাতে ভবিষ্যতে ভাঙলে ধরা পড়ে।
+- `State`-এ `paymentMethod` যোগ হয়েছে শুধু এই কারণে: সক্রিয় সারি না থাকলে append করতে `method` লাগে (create-এর মতোই `purchase.paymentMethod`)।
+- টেস্টে আগে ব্যর্থ হওয়া যাচাই করা হয়েছে: fix ছাড়া তিনটাই ফেল করে (৫৭,০০০ ≠ ৫০,৮৫০; তারিখ পুরনো; ১০,০০০ ≠ ৯,০০০), fix-সহ পাস।

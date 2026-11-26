@@ -115,6 +115,15 @@ describe.skipIf(!hasDatabase)('voiding and correcting purchases', () => {
     return Number(row?.quantity.toString() ?? '0');
   }
 
+  /** The general-ledger entries mirroring one purchase, oldest first. */
+  async function ledgerEntries(purchaseId: string) {
+    return t.prisma.forBusiness(shop.id).businessLedgerEntry.findMany({
+      where: { referenceType: 'purchase', referenceId: purchaseId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { amount: true, entryDate: true, status: true, type: true, direction: true },
+    });
+  }
+
   async function movements(sourceId: string) {
     return t.prisma.forBusiness(shop.id).stockMovement.findMany({
       where: { sourceId },
@@ -372,6 +381,75 @@ describe.skipIf(!hasDatabase)('voiding and correcting purchases', () => {
       });
       expect(edit?.quantity.toString()).toBe('-10');
       expect(edit?.movementDate.toISOString().slice(0, 10)).toBe(TODAY);
+    });
+
+    it('restates the purchase ledger entry, so Accounts stops showing the old amount', async () => {
+      const opc = await newProduct();
+      const purchase = await buy([{ productId: opc, quantity: '100', unitPrice: '570' }]);
+      const item = purchase.items[0]?.id ?? '';
+      expect(await ledgerEntries(purchase.id)).toMatchObject([
+        { amount: new Prisma.Decimal('57000.00'), status: 'active', direction: 'out' },
+      ]);
+
+      const created = await requestChange('manager', {
+        entityType: 'purchase',
+        entityId: purchase.id,
+        kind: 'edit',
+        reason: 'Akij paper says 90 bags at 565',
+        proposedChange: {
+          [`items.${item}.quantity`]: '90',
+          [`items.${item}.unitPrice`]: '565',
+        },
+      }).expect(201);
+      await decide('owner', (created.body as RequestBody).id, 'approve').expect(200);
+
+      // One row, restated in place — never a second entry for the same purchase.
+      const entries = await ledgerEntries(purchase.id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.amount.toString()).toBe('50850');
+      expect(entries[0]?.status).toBe('active');
+    });
+
+    it('moves the ledger entry to the new month when the purchase date moves', async () => {
+      const opc = await newProduct();
+      const purchase = await buy([{ productId: opc, quantity: '10', unitPrice: '100' }]);
+      const lastMonth = addDays(TODAY, -40);
+
+      const created = await requestChange('manager', {
+        entityType: 'purchase',
+        entityId: purchase.id,
+        kind: 'edit',
+        reason: 'the challan is dated last month',
+        proposedChange: { purchaseDate: lastMonth },
+      }).expect(201);
+      await decide('owner', (created.body as RequestBody).id, 'approve').expect(200);
+
+      const entries = await ledgerEntries(purchase.id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.entryDate.toISOString().slice(0, 10)).toBe(lastMonth);
+      // The amount did not change, only the month it counts in.
+      expect(entries[0]?.amount.toString()).toBe('1000');
+    });
+
+    it('agrees with the cash book after an edit (both read the corrected amount)', async () => {
+      const opc = await newProduct();
+      const purchase = await buy([{ productId: opc, quantity: '20', unitPrice: '500' }]);
+      const item = purchase.items[0]?.id ?? '';
+
+      const created = await requestChange('manager', {
+        entityType: 'purchase',
+        entityId: purchase.id,
+        kind: 'edit',
+        reason: 'price corrected to 450',
+        proposedChange: { [`items.${item}.unitPrice`]: '450' },
+      }).expect(201);
+      await decide('owner', (created.body as RequestBody).id, 'approve').expect(200);
+
+      // A price-only edit moves no stock, so this is exactly the case that used
+      // to leave the ledger stale.
+      const entries = await ledgerEntries(purchase.id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.amount.toString()).toBe('9000');
     });
 
     it('previews only the lines that change on a purchase with several lines', async () => {
