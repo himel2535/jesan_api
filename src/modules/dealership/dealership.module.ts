@@ -27,6 +27,8 @@ import { AccountsService } from './accounts/accounts.service';
 import { BusinessLedgerService } from './accounts/business-ledger.service';
 import { CashBookController } from './cashbook/cash-book.controller';
 import { CashBookService } from './cashbook/cash-book.service';
+import { DashboardController } from './dashboard/dashboard.controller';
+import { DashboardService } from './dashboard/dashboard.service';
 import { ExpenseCategoriesService } from './expenses/expense-categories.service';
 import {
   ExpenseChangeHandler,
@@ -95,6 +97,7 @@ import {
     CommissionEntriesController,
     CommissionSummaryController,
     AccountsController,
+    DashboardController,
   ],
   providers: [
     DealershipContext,
@@ -122,6 +125,7 @@ import {
     CommissionService,
     BusinessLedgerService,
     AccountsService,
+    DashboardService,
   ],
 })
 export class DealershipModule {
