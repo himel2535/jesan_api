@@ -5,7 +5,12 @@ import { RequirePermission } from '../../../core/permissions/decorators';
 import { SerializeWith } from '../../../core/permissions/serialize/serialize.interceptor';
 import { DashboardService } from './dashboard.service';
 import { DashboardCashbookQueryDto, DashboardYearQueryDto } from './dto/requests';
-import { CashbookResponse, CommissionSeriesResponse, MonthlySeriesResponse } from './dto/responses';
+import {
+  CashbookResponse,
+  CommissionSeriesResponse,
+  FinanceSummaryResponse,
+  MonthlySeriesResponse,
+} from './dto/responses';
 
 @Controller('b/:businessSlug/dashboard')
 export class DashboardController {
@@ -16,6 +21,20 @@ export class DashboardController {
   @SerializeWith(CashbookResponse)
   cashbook(@CurrentAccess() access: BusinessAccess, @Query() query: DashboardCashbookQueryDto) {
     return this.dashboard.cashbook(access, query);
+  }
+
+  /**
+   * Everything the Financial Summary shows. The cost and profit fields are
+   * owner-only (`profit.view`); a manager gets the rest of the panel without them.
+   */
+  @Get('finance-summary')
+  @RequirePermission('report.view')
+  @SerializeWith(FinanceSummaryResponse)
+  financeSummary(
+    @CurrentAccess() access: BusinessAccess,
+    @Query() query: DashboardCashbookQueryDto,
+  ) {
+    return this.dashboard.financeSummary(access, query);
   }
 
   @Get('monthly-series')

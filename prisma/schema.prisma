@@ -28,31 +28,32 @@ model Business {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  access             UserBusinessAccess[]
-  rolePermissions    RolePermission[]
-  auditLogs          AuditLog[]
-  documentCounters   DocumentCounter[]
-  productCategories  ProductCategory[]
-  products           Product[]
-  customers          Customer[]
-  suppliers          Supplier[]
-  changeRequests     ChangeRequest[]
-  purchases          Purchase[]
-  purchaseItems      PurchaseItem[]
-  stockMovements     StockMovement[]
-  purchaseCounters   MonthlyPurchaseCounter[]
-  salesOrders        SalesOrder[]
-  salesOrderItems    SalesOrderItem[]
-  deliveries         Delivery[]
-  deliveryItems      DeliveryItem[]
-  collections        Collection[]
-  customerLedger     CustomerLedgerEntry[]
-  expenseCategories  ExpenseCategory[]
-  expenses           Expense[]
-  commissionScheme   CommissionScheme?
-  commissionEntries  CommissionEntry[]
-  commissionReceipts CommissionReceipt[]
-  ledgerEntries      BusinessLedgerEntry[]
+  access                   UserBusinessAccess[]
+  rolePermissions          RolePermission[]
+  auditLogs                AuditLog[]
+  documentCounters         DocumentCounter[]
+  productCategories        ProductCategory[]
+  products                 Product[]
+  customers                Customer[]
+  suppliers                Supplier[]
+  changeRequests           ChangeRequest[]
+  purchases                Purchase[]
+  purchaseItems            PurchaseItem[]
+  stockMovements           StockMovement[]
+  inventoryCostCorrections InventoryCostCorrection[]
+  purchaseCounters         MonthlyPurchaseCounter[]
+  salesOrders              SalesOrder[]
+  salesOrderItems          SalesOrderItem[]
+  deliveries               Delivery[]
+  deliveryItems            DeliveryItem[]
+  collections              Collection[]
+  customerLedger           CustomerLedgerEntry[]
+  expenseCategories        ExpenseCategory[]
+  expenses                 Expense[]
+  commissionScheme         CommissionScheme?
+  commissionEntries        CommissionEntry[]
+  commissionReceipts       CommissionReceipt[]
+  ledgerEntries            BusinessLedgerEntry[]
 
   @@map("businesses")
 }
@@ -81,36 +82,37 @@ model User {
   sessions  Session[]
   auditLogs AuditLog[]
 
-  createdCategories        ProductCategory[]     @relation("createdCategories")
-  createdProducts          Product[]             @relation("createdProducts")
-  createdCustomers         Customer[]            @relation("createdCustomers")
-  createdSuppliers         Supplier[]            @relation("createdSuppliers")
-  updatedCategories        ProductCategory[]     @relation("updatedCategories")
-  updatedProducts          Product[]             @relation("updatedProducts")
-  updatedCustomers         Customer[]            @relation("updatedCustomers")
-  updatedSuppliers         Supplier[]            @relation("updatedSuppliers")
-  requestedChanges         ChangeRequest[]       @relation("requestedChanges")
-  decidedChanges           ChangeRequest[]       @relation("decidedChanges")
-  createdPurchases         Purchase[]            @relation("createdPurchases")
-  updatedPurchases         Purchase[]            @relation("updatedPurchases")
-  voidedPurchases          Purchase[]            @relation("voidedPurchases")
-  createdOrders            SalesOrder[]          @relation("createdOrders")
-  updatedOrders            SalesOrder[]          @relation("updatedOrders")
-  voidedOrders             SalesOrder[]          @relation("voidedOrders")
-  createdDeliveries        Delivery[]            @relation("createdDeliveries")
-  updatedDeliveries        Delivery[]            @relation("updatedDeliveries")
-  voidedDeliveries         Delivery[]            @relation("voidedDeliveries")
-  createdCollections       Collection[]          @relation("createdCollections")
-  updatedCollections       Collection[]          @relation("updatedCollections")
-  voidedCollections        Collection[]          @relation("voidedCollections")
-  createdExpenses          Expense[]             @relation("createdExpenses")
-  updatedExpenses          Expense[]             @relation("updatedExpenses")
-  voidedExpenses           Expense[]             @relation("voidedExpenses")
-  createdExpenseCategories ExpenseCategory[]     @relation("createdExpenseCategories")
-  updatedExpenseCategories ExpenseCategory[]     @relation("updatedExpenseCategories")
+  createdCategories        ProductCategory[]         @relation("createdCategories")
+  createdProducts          Product[]                 @relation("createdProducts")
+  createdCustomers         Customer[]                @relation("createdCustomers")
+  createdSuppliers         Supplier[]                @relation("createdSuppliers")
+  updatedCategories        ProductCategory[]         @relation("updatedCategories")
+  updatedProducts          Product[]                 @relation("updatedProducts")
+  updatedCustomers         Customer[]                @relation("updatedCustomers")
+  updatedSuppliers         Supplier[]                @relation("updatedSuppliers")
+  requestedChanges         ChangeRequest[]           @relation("requestedChanges")
+  decidedChanges           ChangeRequest[]           @relation("decidedChanges")
+  createdPurchases         Purchase[]                @relation("createdPurchases")
+  updatedPurchases         Purchase[]                @relation("updatedPurchases")
+  voidedPurchases          Purchase[]                @relation("voidedPurchases")
+  createdOrders            SalesOrder[]              @relation("createdOrders")
+  updatedOrders            SalesOrder[]              @relation("updatedOrders")
+  voidedOrders             SalesOrder[]              @relation("voidedOrders")
+  createdDeliveries        Delivery[]                @relation("createdDeliveries")
+  updatedDeliveries        Delivery[]                @relation("updatedDeliveries")
+  voidedDeliveries         Delivery[]                @relation("voidedDeliveries")
+  createdCollections       Collection[]              @relation("createdCollections")
+  updatedCollections       Collection[]              @relation("updatedCollections")
+  voidedCollections        Collection[]              @relation("voidedCollections")
+  createdExpenses          Expense[]                 @relation("createdExpenses")
+  updatedExpenses          Expense[]                 @relation("updatedExpenses")
+  voidedExpenses           Expense[]                 @relation("voidedExpenses")
+  createdExpenseCategories ExpenseCategory[]         @relation("createdExpenseCategories")
+  updatedExpenseCategories ExpenseCategory[]         @relation("updatedExpenseCategories")
   ledgerEntries            CustomerLedgerEntry[]
   createdLedgerEntries     BusinessLedgerEntry[]
   stockMovements           StockMovement[]
+  inventoryCostCorrections InventoryCostCorrection[]
 
   @@map("users")
 }
@@ -313,6 +315,16 @@ model Product {
   /// Stock on hand, kept in the same transaction as every stock movement; equals
   /// the sum of the product's movements. Never negative (CHECK).
   currentStock      Decimal   @default(0) @map("current_stock") @db.Decimal(14, 3)
+  /// Moving weighted average cost, held as two pools that never mix:
+  /// `costedQuantity`/`costedValue` are the bags whose purchase price is known,
+  /// `uncostedQuantity` the bags that arrived without one (a found-bags
+  /// adjustment). The average is always derived (value ÷ quantity), never
+  /// stored, so it cannot drift from the money. Always
+  /// costedQuantity + uncostedQuantity = currentStock (CHECK). Hidden without
+  /// product.cost.view.
+  costedQuantity    Decimal   @default(0) @map("costed_quantity") @db.Decimal(14, 3)
+  costedValue       Decimal   @default(0) @map("costed_value") @db.Decimal(20, 6)
+  uncostedQuantity  Decimal   @default(0) @map("uncosted_quantity") @db.Decimal(14, 3)
   isActive          Boolean   @default(true) @map("is_active")
   createdBy         String?   @map("created_by") @db.Uuid
   updatedBy         String?   @map("updated_by") @db.Uuid
@@ -326,10 +338,11 @@ model Product {
   creator  User?           @relation("createdProducts", fields: [createdBy], references: [id], onDelete: Restrict)
   updater  User?           @relation("updatedProducts", fields: [updatedBy], references: [id], onDelete: Restrict)
 
-  purchaseItems   PurchaseItem[]
-  stockMovements  StockMovement[]
-  salesOrderItems SalesOrderItem[]
-  deliveryItems   DeliveryItem[]
+  purchaseItems            PurchaseItem[]
+  stockMovements           StockMovement[]
+  inventoryCostCorrections InventoryCostCorrection[]
+  salesOrderItems          SalesOrderItem[]
+  deliveryItems            DeliveryItem[]
 
   @@unique([businessId, code])
   // Target of composite foreign keys from business data (same-business rows only).
@@ -570,6 +583,12 @@ model PurchaseItem {
 /// stock right after this movement (computed under the product row lock).
 model StockMovement {
   id           String   @id @default(uuid(7)) @db.Uuid
+  /// Insertion counter, assigned by the database. `createdAt` is the
+  /// transaction's start time, so rows written together tie on it; this gives
+  /// costing a deterministic tie-break between movements that share a business
+  /// date. Never an ordering by itself: costing sorts by effective business
+  /// date first, this second.
+  seq          BigInt   @default(autoincrement())
   businessId   String   @map("business_id") @db.Uuid
   productId    String   @map("product_id") @db.Uuid
   /// purchase, purchase_edit, purchase_void, adjustment, delivery, delivery_edit, delivery_void.
@@ -594,7 +613,45 @@ model StockMovement {
   @@index([businessId, movementDate])
   @@index([businessId, sourceType, sourceId])
   @@index([createdBy])
+  // Costing replays one product's movements forwards; the other index is DESC.
+  @@index([businessId, productId, seq])
   @@map("stock_movements")
+}
+
+/// Cost of goods sold that belongs to history already closed: when an old
+/// purchase's price, quantity or date is corrected, the delivery snapshots it
+/// touched are never rewritten. The product's timeline is replayed instead and
+/// the difference is booked here, on the day the correction was made, the way
+/// every other reversal in the system is dated. Append-only (trigger).
+model InventoryCostCorrection {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  /// The business day the correction was booked on — what period reports count it in.
+  correctionDate  DateTime @map("correction_date") @db.Date
+  /// The earliest day the underlying change belongs to, kept so a restated
+  /// view of a closed period stays possible later. Reports do not use it.
+  effectiveDate   DateTime @map("effective_date") @db.Date
+  /// Replayed cost of goods sold minus the sum of the frozen snapshots.
+  cogsDelta       Decimal  @map("cogs_delta") @db.Decimal(20, 6)
+  /// The matching change in what the remaining stock is worth.
+  stockValueDelta Decimal  @map("stock_value_delta") @db.Decimal(20, 6)
+  /// purchase_edit, purchase_void, backdated_entry or rounding_residual.
+  kind            String   @db.VarChar(24)
+  reason          String?  @db.VarChar(500)
+  sourceType      String?  @map("source_type") @db.VarChar(16)
+  sourceId        String?  @map("source_id") @db.Uuid
+  createdBy       String   @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product  Product  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  creator  User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([businessId, correctionDate])
+  @@index([businessId, productId])
+  @@index([createdBy])
+  @@map("inventory_cost_corrections")
 }
 
 /// Bags bought per month (by purchase date), for commission progress. Changed
@@ -680,28 +737,28 @@ model CommissionReceipt {
 /// source document is voided; a manual entry or payment has no source and is
 /// never voided by this module (status stays 'active').
 model BusinessLedgerEntry {
-  id            String   @id @default(uuid(7)) @db.Uuid
-  businessId    String   @map("business_id") @db.Uuid
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
   /// collection, expense, purchase, commission_receipt, manual, supplier_payment.
-  type          String   @db.VarChar(32)
+  type           String   @db.VarChar(32)
   /// in or out (CHECK in the migration).
-  direction     String   @db.VarChar(4)
-  amount        Decimal  @db.Decimal(14, 2)
-  method        String?  @db.VarChar(16)
+  direction      String   @db.VarChar(4)
+  amount         Decimal  @db.Decimal(14, 2)
+  method         String?  @db.VarChar(16)
   /// Together with referenceId, the source document; null for manual entries
   /// and supplier payments, which have none.
-  referenceType String?  @map("reference_type") @db.VarChar(32)
-  referenceId   String?  @map("reference_id") @db.Uuid
+  referenceType  String?  @map("reference_type") @db.VarChar(32)
+  referenceId    String?  @map("reference_id") @db.Uuid
   /// The business's calendar date (its time zone, Asia/Dhaka by default).
-  entryDate     DateTime @map("entry_date") @db.Date
-  note          String?  @db.VarChar(500)
+  entryDate      DateTime @map("entry_date") @db.Date
+  note           String?  @db.VarChar(500)
   /// active or void (CHECK in the migration).
-  status        String   @default("active") @db.VarChar(8)
+  status         String   @default("active") @db.VarChar(8)
   /// Only set on manual entries and supplier payments, which may repeat the
   /// request safely; auto-entered rows always have none.
-  idempotencyKey String? @map("idempotency_key") @db.VarChar(64)
-  createdBy     String   @map("created_by") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  idempotencyKey String?  @map("idempotency_key") @db.VarChar(64)
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
   creator  User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
@@ -844,18 +901,28 @@ model Delivery {
 }
 
 model DeliveryItem {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  businessId  String   @map("business_id") @db.Uuid
-  deliveryId  String   @map("delivery_id") @db.Uuid
-  orderItemId String   @map("order_item_id") @db.Uuid
-  productId   String   @map("product_id") @db.Uuid
-  quantity    Decimal  @db.Decimal(14, 3)
+  id               String   @id @default(uuid(7)) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  deliveryId       String   @map("delivery_id") @db.Uuid
+  orderItemId      String   @map("order_item_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  quantity         Decimal  @db.Decimal(14, 3)
   /// The order line's price (kept equal when the order's price is corrected).
-  unitPrice   Decimal  @map("unit_price") @db.Decimal(14, 2)
-  lineTotal   Decimal  @map("line_total") @db.Decimal(14, 2)
-  status      String   @default("active") @db.VarChar(8)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(14, 2)
+  lineTotal        Decimal  @map("line_total") @db.Decimal(14, 2)
+  /// What these bags cost us: the moving average at the moment of delivery,
+  /// frozen here for good. A later purchase changes the average but never this
+  /// snapshot; a correction to older history is booked in
+  /// inventory_cost_corrections instead. Null for deliveries made before
+  /// costing existed and never back-filled. Hidden without product.cost.view.
+  unitCost         Decimal? @map("unit_cost") @db.Decimal(18, 6)
+  costAmount       Decimal? @map("cost_amount") @db.Decimal(18, 6)
+  /// The part of this line that came out of the uncosted pool, so it has no
+  /// cost basis at all. `costAmount` covers only the rest.
+  uncostedQuantity Decimal  @default(0) @map("uncosted_quantity") @db.Decimal(14, 3)
+  status           String   @default("active") @db.VarChar(8)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business  Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
   delivery  Delivery       @relation(fields: [businessId, deliveryId], references: [businessId, id], onDelete: Restrict)

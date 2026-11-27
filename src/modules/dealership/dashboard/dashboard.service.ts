@@ -158,6 +158,101 @@ export class DashboardService {
   }
 
   /**
+   * The Financial Summary, every figure over one window and all from one call,
+   * so the panel can never show two numbers that disagree about the period.
+   *
+   * Net profit = sales − cost of goods sold − expenses + commission received.
+   * Purchases are deliberately *not* subtracted: bags still in the warehouse are
+   * an asset, not a cost. Only what was actually delivered is taken out, at the
+   * weighted average cost frozen onto each delivery line, plus any correction
+   * booked in this period for history that was edited later.
+   *
+   * Collection and customer due are reported but never fed into profit: money
+   * coming in is not revenue, and a receivable is not an expense.
+   */
+  async financeSummary(access: BusinessAccess, query: DashboardCashbookQueryDto) {
+    const config = await this.context.config(access.businessId);
+    const { from, to } = resolveDateRange(query, config.timezone);
+    const db = this.prisma.forBusiness(access.businessId);
+    const range = { gte: toDbDate(from), lte: toDbDate(to) };
+
+    const [deliveries, purchases, ledger, due, stock, snapshots, corrections, deliveredLines] =
+      await Promise.all([
+        db.delivery.aggregate({
+          where: { status: 'active', deliveryDate: range },
+          _sum: { totalAmount: true },
+        }),
+        db.purchase.aggregate({
+          where: { status: 'active', purchaseDate: range },
+          _sum: { totalAmount: true },
+        }),
+        db.businessLedgerEntry.groupBy({
+          by: ['type', 'direction'],
+          where: { status: 'active', entryDate: range },
+          _sum: { amount: true },
+        }),
+        db.customer.aggregate({
+          where: { isActive: true, currentBalance: { gt: 0 } },
+          _sum: { currentBalance: true },
+        }),
+        db.product.aggregate({
+          _sum: { currentStock: true, costedValue: true, uncostedQuantity: true },
+        }),
+        // Cost of goods sold: the frozen snapshot on every line delivered in the
+        // window. A line's delivery decides the period, not when it was costed.
+        db.deliveryItem.findMany({
+          where: { status: 'active', delivery: { status: 'active', deliveryDate: range } },
+          select: { costAmount: true, uncostedQuantity: true },
+        }),
+        db.inventoryCostCorrection.aggregate({
+          where: { correctionDate: range },
+          _sum: { cogsDelta: true },
+        }),
+        db.deliveryItem.count({
+          where: {
+            status: 'active',
+            costAmount: null,
+            delivery: { status: 'active', deliveryDate: range },
+          },
+        }),
+      ]);
+
+    const amountOf = (type: string, direction: 'in' | 'out') =>
+      ledger.find((row) => row.type === type && row.direction === direction)?._sum.amount ?? ZERO;
+
+    const sales = deliveries._sum.totalAmount ?? ZERO;
+    const expenses = amountOf('expense', 'out');
+    const commissionReceived = amountOf('commission_receipt', 'in');
+    const collection = amountOf('collection', 'in');
+    const cogs = snapshots
+      .reduce((sum, line) => sum.add(line.costAmount ?? ZERO), ZERO)
+      .add(corrections._sum.cogsDelta ?? ZERO);
+    const uncostedDelivered = snapshots.reduce((sum, line) => sum.add(line.uncostedQuantity), ZERO);
+
+    return {
+      from,
+      to,
+      sales: moneyString(sales),
+      collection: moneyString(collection),
+      customerDue: moneyString(due._sum.currentBalance ?? ZERO),
+      expenses: moneyString(expenses),
+      commissionReceived: moneyString(commissionReceived),
+      totalPurchase: moneyString(purchases._sum.totalAmount ?? ZERO),
+      currentStockQuantity: (stock._sum.currentStock ?? ZERO).toFixed(3),
+      currentStockValue: moneyString((stock._sum.costedValue ?? ZERO).toDecimalPlaces(2)),
+      cogs: moneyString(cogs.toDecimalPlaces(2)),
+      netProfit: moneyString(
+        sales.sub(cogs).sub(expenses).add(commissionReceived).toDecimalPlaces(2),
+      ),
+      // Non-zero means cost of goods sold is understated by an unknown amount,
+      // so the dashboard warns rather than presenting the profit as complete.
+      uncostedQuantityDelivered: uncostedDelivered.toFixed(3),
+      uncostedQuantityOnHand: (stock._sum.uncostedQuantity ?? ZERO).toFixed(3),
+      uncostedDeliveryLines: deliveredLines,
+    };
+  }
+
+  /**
    * Commission by month: calculated (entries by `fromDate`) and received (receipts by
    * `receivedDate`), kept separate. Receivable = calculated − received over all time.
    */

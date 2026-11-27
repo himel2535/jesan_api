@@ -23,6 +23,34 @@ export class CashbookResponse {
   @Expose() availableCashAndBank!: string;
 }
 
+export class FinanceSummaryResponse {
+  @Expose() from!: string;
+  @Expose() to!: string;
+  /** Delivered value in the window: revenue is recognised on delivery. */
+  @Expose() sales!: string;
+  /** Money received. Shown for information; never added to profit. */
+  @Expose() collection!: string;
+  /** What customers owe right now — a balance, not a figure for this window. */
+  @Expose() customerDue!: string;
+  @Expose() expenses!: string;
+  @Expose() commissionReceived!: string;
+
+  /** Cost of the bags bought in the window, whether or not they have been sold. */
+  @VisibleWith('profit.view') totalPurchase!: string;
+  @VisibleWith('profit.view') currentStockQuantity!: string;
+  /** What the bags still in the warehouse are worth, at weighted average cost. */
+  @VisibleWith('profit.view') currentStockValue!: string;
+  /** Sold Products Purchase Cost: snapshots of what was delivered, plus corrections booked now. */
+  @VisibleWith('profit.view') cogs!: string;
+  /** sales − cogs − expenses + commissionReceived. */
+  @VisibleWith('profit.view') netProfit!: string;
+  /** Bags delivered in the window with no cost basis; above zero, cogs is understated. */
+  @VisibleWith('profit.view') uncostedQuantityDelivered!: string;
+  @VisibleWith('profit.view') uncostedQuantityOnHand!: string;
+  /** Delivery lines in the window that were never costed (made before costing existed). */
+  @VisibleWith('profit.view') uncostedDeliveryLines!: number;
+}
+
 class MonthlySeriesRow {
   /** `YYYY-MM` */
   @Expose() month!: string;

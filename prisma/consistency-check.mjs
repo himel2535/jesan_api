@@ -6,7 +6,9 @@
 // - each customer: current_balance = opening + delivered - collected, the
 //   ledger sums to delivered - collected, delivered = active deliveries,
 //   collected = active collections, pending bags = active orders not delivered;
-// - each order's delivered bags = its active delivery lines.
+// - each order's delivered bags = its active delivery lines;
+// - each product's cost pools: costed + uncosted bags = current_stock, and
+//   costed value and costed quantity are zero together.
 // - the cash book (derived, no table of its own): the total net of active
 //   collections minus active expenses minus active cash purchases equals the
 //   same total added up day by day, for every business.
@@ -109,6 +111,19 @@ try {
       FROM direct d LEFT JOIN by_day g ON g.business_id = d.business_id
      WHERE d.net <> coalesce(g.net, 0)`);
 
+  // Inventory cost pools: the costed and uncosted bags together are the stock
+  // on hand, and value and quantity are empty together — a pool holding money
+  // but no bags (or bags recorded at no value) means costing has drifted.
+  // Before `npm run inventory:cost-backfill -- --commit` has been run, every
+  // product with stock shows up here; that is the signal to run it.
+  const costPools = await client.query(`
+    SELECT business_id, id, code, current_stock::text AS current_stock,
+           costed_quantity::text AS costed_quantity, costed_value::text AS costed_value,
+           uncosted_quantity::text AS uncosted_quantity
+      FROM products
+     WHERE costed_quantity + uncosted_quantity <> current_stock
+        OR (costed_quantity = 0) <> (costed_value = 0)`);
+
   // Defensive: an active expense's kind always belongs to its own business
   // (the composite foreign key already guarantees this; this just says so).
   const expenseCategories = await client.query(`
@@ -148,6 +163,13 @@ try {
         `direct net ${row.direct_net}, day-by-day net ${row.by_day_net}`,
     );
   }
+  for (const row of costPools.rows) {
+    console.error(
+      `cost pool mismatch: business ${row.business_id} product ${row.code} (${row.id}): ` +
+        `current ${row.current_stock}, costed ${row.costed_quantity} worth ${row.costed_value}, ` +
+        `uncosted ${row.uncosted_quantity} (run inventory:cost-backfill if costing has not been run yet)`,
+    );
+  }
   for (const row of expenseCategories.rows) {
     console.error(
       `expense category mismatch: business ${row.business_id} expense ${row.code} (${row.id}): ` +
@@ -160,12 +182,13 @@ try {
     customers.rows.length ||
     orders.rows.length ||
     cashBook.rows.length ||
+    costPools.rows.length ||
     expenseCategories.rows.length
   ) {
     process.exitCode = 1;
   } else {
     console.log(
-      'Stock, purchase counters, customer balances, orders, and the cash book are consistent.',
+      'Stock, cost pools, purchase counters, customer balances, orders, and the cash book are consistent.',
     );
   }
 } finally {

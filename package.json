@@ -33,7 +33,8 @@
     "db:seed:dev": "node prisma/seed-dev.mjs",
     "db:seed:perf": "node prisma/seed-perf.mjs",
     "db:seed:perf:sales": "node prisma/seed-perf-sales.mjs",
-    "db:seed:perf:expenses": "node prisma/seed-perf-expenses.mjs"
+    "db:seed:perf:expenses": "node prisma/seed-perf-expenses.mjs",
+    "inventory:cost-backfill": "npm run build && node dist/modules/dealership/stock/inventory-cost-backfill.js"
   },
   "dependencies": {
     "@nestjs/common": "12.5.0",

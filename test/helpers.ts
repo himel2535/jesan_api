@@ -199,6 +199,10 @@ export class TestData {
         'DELETE FROM customer_ledger_entries WHERE business_id = ANY($1::uuid[])',
         businessIds,
       ),
+      db.$executeRawUnsafe(
+        'DELETE FROM inventory_cost_corrections WHERE business_id = ANY($1::uuid[])',
+        businessIds,
+      ),
     ]);
     for (const table of [
       'change_requests',

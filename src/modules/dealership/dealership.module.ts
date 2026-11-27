@@ -53,6 +53,7 @@ import { PurchaseCountersController, PurchasesController } from './purchases/pur
 import { PurchasesService } from './purchases/purchases.service';
 import { ProductStockChangeHandler } from './stock/product-stock-handler';
 import { StockLedger } from './stock/stock-ledger';
+import { InventoryCostingService } from './stock/inventory-costing.service';
 import { StockController } from './stock/stock.controller';
 import { StockService } from './stock/stock.service';
 import { CollectionsService } from './sales/collections.service';
@@ -106,6 +107,7 @@ import {
     CustomersService,
     SuppliersService,
     StockLedger,
+    InventoryCostingService,
     PurchasesService,
     PurchaseChangeHandler,
     StockService,

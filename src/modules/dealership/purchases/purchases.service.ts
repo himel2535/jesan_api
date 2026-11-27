@@ -280,6 +280,8 @@ export class PurchasesService {
             sourceType: 'purchase',
             sourceId: purchase.id,
             reason: null,
+            // What the bags cost: this is what moves the weighted average.
+            unitCost: line.unitPrice,
           })),
         );
         await this.ledger.refreshLastPurchase(
