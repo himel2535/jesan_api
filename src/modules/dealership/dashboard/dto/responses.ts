@@ -112,6 +112,4 @@ class KpiWindow {
 
 export class KpisResponse {
   @Expose() @Type(() => KpiWindow) current!: KpiWindow;
-  /** The comparison window, or `null` when `prevFrom`/`prevTo` were not sent. */
-  @Expose() @Type(() => KpiWindow) previous!: KpiWindow | null;
 }

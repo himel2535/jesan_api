@@ -54,7 +54,6 @@ interface KpiWindowBody {
 }
 interface KpisBody {
   current: KpiWindowBody;
-  previous: KpiWindowBody | null;
 }
 interface CommissionBody {
   year: number;
@@ -268,14 +267,12 @@ describe.skipIf(!hasDatabase)('dashboard aggregates', () => {
       expect(body.current.sales).toBe(sales.totalAmount);
       expect(Number(body.current.salesQuantity)).toBeCloseTo(Number(sales.totalQuantity), 3);
       expect(Number(body.current.purchaseQuantity)).toBeCloseTo(Number(purchases.totalQuantity), 3);
-      expect(body.previous).toBeNull();
+      // There is no comparison window in the answer.
+      expect(Object.keys(body)).toEqual(['current']);
     });
 
-    it('a new collection moves only the window that contains it', async () => {
-      const yesterday = new Date(`${TODAY}T00:00:00.000Z`);
-      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-      const day = yesterday.toISOString().slice(0, 10);
-      const query = `?from=${TODAY}&to=${TODAY}&prevFrom=${day}&prevTo=${day}`;
+    it('a new collection moves the window that contains it', async () => {
+      const query = `?from=${TODAY}&to=${TODAY}`;
       const before = (await kpis('owner', query)).body;
       const id = await customer();
       await post('owner', 'collections', { customerId: id, method: 'cash', amount: '125' }).expect(
@@ -286,8 +283,7 @@ describe.skipIf(!hasDatabase)('dashboard aggregates', () => {
         125,
         2,
       );
-      expect(after.previous?.collection).toBe(before.previous?.collection);
-      expect(after.previous?.from).toBe(day);
+      expect(after.current.from).toBe(TODAY);
     });
 
     it('hides bags bought from someone without purchase.view, but still answers', async () => {
@@ -302,25 +298,17 @@ describe.skipIf(!hasDatabase)('dashboard aggregates', () => {
       expect((await kpis('salesman')).status).toBe(403);
     });
 
-    it('rejects a half-sent or invalid comparison window with the documented code', async () => {
-      const half = await kpis('owner', `?from=${TODAY}&to=${TODAY}&prevFrom=${TODAY}`);
-      expect([half.status, half.body.code, half.body.field]).toEqual([
-        400,
-        'PREV_TO_REQUIRED',
-        'prevTo',
-      ]);
-      const other = await kpis('owner', `?from=${TODAY}&to=${TODAY}&prevTo=${TODAY}`);
-      expect([other.status, other.body.code]).toEqual([400, 'PREV_FROM_REQUIRED']);
-      const backwards = await kpis(
-        'owner',
-        `?from=${TODAY}&to=${TODAY}&prevFrom=${TODAY}&prevTo=2000-01-01`,
-      );
-      expect([backwards.status, backwards.body.code]).toEqual([400, 'PREV_TO_INVALID']);
-      const notReal = await kpis(
-        'owner',
-        `?from=${TODAY}&to=${TODAY}&prevFrom=2026-02-30&prevTo=2026-03-01`,
-      );
-      expect([notReal.status, notReal.body.code]).toEqual([400, 'PREV_FROM_INVALID']);
+    it('no longer accepts a comparison window: prevFrom / prevTo are unknown parameters', async () => {
+      for (const extra of [
+        `&prevFrom=${TODAY}&prevTo=${TODAY}`,
+        `&prevFrom=${TODAY}`,
+        `&prevTo=${TODAY}`,
+      ]) {
+        const response = await kpis('owner', `?from=${TODAY}&to=${TODAY}${extra}`);
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_FAILED');
+        expect(JSON.stringify(response.body)).toMatch(/NOT_ALLOWED/);
+      }
     });
   });
 

@@ -1,13 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
-import {
-  addDays,
-  fromDbDate,
-  isCalendarDate,
-  toDbDate,
-  todayIn,
-} from '../../../core/common/business-time';
-import { badRequest } from '../../../core/errors';
+import { addDays, fromDbDate, toDbDate, todayIn } from '../../../core/common/business-time';
 import { moneyString } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
 import { PrismaService } from '../../../core/database/prisma.service';
@@ -86,23 +79,15 @@ export class DashboardService {
   }
 
   /**
-   * The KPI cards' four figures (collection, sales, bags sold, bags bought) for one window and,
-   * when `prevFrom`/`prevTo` are sent, a comparison window. Each figure is one indexed aggregate
-   * over active rows, and the windows run in parallel, so one request replaces what used to be a
-   * paginated report call per figure.
-   * Codes: `PREV_FROM_REQUIRED` / `PREV_TO_REQUIRED` / `PREV_FROM_INVALID` / `PREV_TO_INVALID`.
+   * The KPI cards' four figures (collection, sales, bags sold, bags bought) for one window. Each
+   * figure is one indexed aggregate over active rows, run in parallel, so one request replaces what
+   * used to be a paginated report call per figure. No comparison window is computed.
    */
   async kpis(access: BusinessAccess, query: DashboardKpisQueryDto) {
     const config = await this.context.config(access.businessId);
     const current = resolveDateRange(query, config.timezone);
-    const previous = resolvePreviousRange(query);
     const db = this.prisma.forBusiness(access.businessId);
-
-    const [now, before] = await Promise.all([
-      kpiWindow(db, current),
-      previous ? kpiWindow(db, previous) : Promise.resolve(null),
-    ]);
-    return { current: now, previous: before };
+    return { current: await kpiWindow(db, current) };
   }
 
   /**
@@ -402,30 +387,6 @@ export class DashboardService {
       lifetimeReceived: moneyString(lifetimeReceipts._sum.amount ?? ZERO),
     };
   }
-}
-
-/** The comparison window of a KPI request, or `null` when none was asked for. */
-function resolvePreviousRange(query: {
-  prevFrom?: string | undefined;
-  prevTo?: string | undefined;
-}): DateRange | null {
-  const { prevFrom, prevTo } = query;
-  if (prevFrom === undefined && prevTo === undefined) {
-    return null;
-  }
-  if (prevFrom === undefined) {
-    throw badRequest('PREV_FROM_REQUIRED', 'prevFrom is needed together with prevTo', 'prevFrom');
-  }
-  if (prevTo === undefined) {
-    throw badRequest('PREV_TO_REQUIRED', 'prevTo is needed together with prevFrom', 'prevTo');
-  }
-  if (!isCalendarDate(prevFrom)) {
-    throw badRequest('PREV_FROM_INVALID', 'Not a real date', 'prevFrom');
-  }
-  if (!isCalendarDate(prevTo) || prevTo < prevFrom) {
-    throw badRequest('PREV_TO_INVALID', 'Not a real date, or before prevFrom', 'prevTo');
-  }
-  return { from: prevFrom, to: prevTo };
 }
 
 async function kpiWindow(db: ReturnType<PrismaService['forBusiness']>, range: DateRange) {
