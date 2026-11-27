@@ -81,3 +81,23 @@ export class CommissionSeriesResponse {
   @Expose() yearReceived!: string;
   @Expose() lifetimeReceived!: string;
 }
+
+class KpiWindow {
+  @Expose() from!: string;
+  @Expose() to!: string;
+  /** Money received in the window (collections). */
+  @Expose() collection!: string;
+  /** Delivered value in the window: revenue is recognised on delivery. */
+  @Expose() sales!: string;
+  /** Bags delivered in the window. */
+  @Expose() salesQuantity!: string;
+  /** Bags bought in the window; only for users with `purchase.view`, absent otherwise. */
+  @VisibleWith('purchase.view')
+  purchaseQuantity!: string;
+}
+
+export class KpisResponse {
+  @Expose() @Type(() => KpiWindow) current!: KpiWindow;
+  /** The comparison window, or `null` when `prevFrom`/`prevTo` were not sent. */
+  @Expose() @Type(() => KpiWindow) previous!: KpiWindow | null;
+}

@@ -24,3 +24,17 @@ export class DashboardYearQueryDto {
   @Max(2100)
   year?: number;
 }
+
+/**
+ * The four KPI figures for one window, and optionally a second window to compare with.
+ * `prevFrom` and `prevTo` come together or not at all.
+ */
+export class DashboardKpisQueryDto extends DashboardCashbookQueryDto {
+  @IsOptional()
+  @Matches(DATE_PATTERN, { message: `prevFrom ${DATE_MESSAGE}` })
+  prevFrom?: string;
+
+  @IsOptional()
+  @Matches(DATE_PATTERN, { message: `prevTo ${DATE_MESSAGE}` })
+  prevTo?: string;
+}
