@@ -41,6 +41,10 @@ model Business {
   purchaseItems            PurchaseItem[]
   stockMovements           StockMovement[]
   inventoryCostCorrections InventoryCostCorrection[]
+  inventoryBatches         InventoryBatch[]
+  inventoryBatchEvents     InventoryBatchEvent[]
+  deliveryAllocations      DeliveryItemAllocation[]
+  inventoryBackfillRuns    InventoryBackfillRun[]
   purchaseCounters         MonthlyPurchaseCounter[]
   salesOrders              SalesOrder[]
   salesOrderItems          SalesOrderItem[]
@@ -111,6 +115,7 @@ model User {
   createdLedgerEntries     BusinessLedgerEntry[]
   stockMovements           StockMovement[]
   inventoryCostCorrections InventoryCostCorrection[]
+  inventoryBatchEvents     InventoryBatchEvent[]
 
   @@map("users")
 }
@@ -339,6 +344,9 @@ model Product {
   purchaseItems            PurchaseItem[]
   stockMovements           StockMovement[]
   inventoryCostCorrections InventoryCostCorrection[]
+  inventoryBatches         InventoryBatch[]
+  inventoryBatchEvents     InventoryBatchEvent[]
+  deliveryAllocations      DeliveryItemAllocation[]
   salesOrderItems          SalesOrderItem[]
   deliveryItems            DeliveryItem[]
 
@@ -634,7 +642,7 @@ model InventoryCostCorrection {
   cogsDelta       Decimal  @map("cogs_delta") @db.Decimal(20, 6)
   /// The matching change in what the remaining stock is worth.
   stockValueDelta Decimal  @map("stock_value_delta") @db.Decimal(20, 6)
-  /// purchase_edit, purchase_void, backdated_entry or rounding_residual.
+  /// purchase_edit, purchase_void, backdated_entry, rounding_residual or costing_policy_change.
   kind            String   @db.VarChar(24)
   reason          String?  @db.VarChar(500)
   sourceType      String?  @map("source_type") @db.VarChar(16)
@@ -642,14 +650,149 @@ model InventoryCostCorrection {
   createdBy       String   @map("created_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  product  Product  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
-  creator  User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  business    Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product     Product                  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  creator     User                     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  allocations DeliveryItemAllocation[]
+  batchEvents InventoryBatchEvent[]
 
   @@index([businessId, correctionDate])
   @@index([businessId, productId])
   @@index([createdBy])
   @@map("inventory_cost_corrections")
+}
+
+/// One purchase line (or one found-bags adjustment) as a FIFO inventory batch. The
+/// `original*` columns are what was entered and never change (trigger); the plain
+/// columns are the current effective values, moved only by an approved purchase
+/// correction, with every move recorded in `inventory_batch_events`. A batch with a
+/// null `unitCost` has an unknown cost: its bags are counted but never valued, and
+/// a later purchase never prices them. `remainingQuantity` is derived state kept
+/// in step by the stock ledger; `consistency:check` proves it.
+model InventoryBatch {
+  id                   String   @id @default(uuid(7)) @db.Uuid
+  /// Insertion order: the FIFO tie-break between batches received on the same day.
+  seq                  BigInt   @default(autoincrement())
+  businessId           String   @map("business_id") @db.Uuid
+  productId            String   @map("product_id") @db.Uuid
+  /// purchase (sourceId = the purchase) or adjustment (sourceId = its stock movement).
+  sourceType           String   @map("source_type") @db.VarChar(12)
+  sourceId             String   @map("source_id") @db.Uuid
+  originalQuantity     Decimal  @map("original_quantity") @db.Decimal(14, 3)
+  originalUnitCost     Decimal? @map("original_unit_cost") @db.Decimal(14, 2)
+  originalReceivedDate DateTime @map("original_received_date") @db.Date
+  receivedQuantity     Decimal  @map("received_quantity") @db.Decimal(14, 3)
+  unitCost             Decimal? @map("unit_cost") @db.Decimal(14, 2)
+  receivedDate         DateTime @map("received_date") @db.Date
+  remainingQuantity    Decimal  @map("remaining_quantity") @db.Decimal(14, 3)
+  /// Set when a FIFO backfill created it, so that run can be undone.
+  backfillRunId        String?  @map("backfill_run_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product     Product                  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  events      InventoryBatchEvent[]
+  allocations DeliveryItemAllocation[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, sourceType, sourceId, productId])
+  @@index([businessId, productId, receivedDate, seq])
+  @@map("inventory_batches")
+}
+
+/// Which batch a delivery line's bags came from, in FIFO order. Append-only.
+/// `original` rows are the facts of the delivery itself, `reversal` rows undo part
+/// of it (an approved cut or void, at the cost it left with), `adjustment` rows
+/// are accounting adjustments when corrected history moves bags between batches.
+/// A null `batchId` is legacy stock that was never batched. A null `costAmount` is
+/// an unknown cost, never zero.
+model DeliveryItemAllocation {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  deliveryItemId String   @map("delivery_item_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  batchId        String?  @map("batch_id") @db.Uuid
+  /// original, reversal or adjustment.
+  kind           String   @db.VarChar(12)
+  /// Signed: reversals and some adjustments are negative.
+  quantity       Decimal  @db.Decimal(14, 3)
+  unitCost       Decimal? @map("unit_cost") @db.Decimal(14, 2)
+  costAmount     Decimal? @map("cost_amount") @db.Decimal(18, 6)
+  /// This slice's share of the line's selling price (selling price is never derived from cost).
+  revenueAmount  Decimal  @map("revenue_amount") @db.Decimal(14, 2)
+  costKnown      Boolean  @map("cost_known")
+  /// The delivery date for original/reversal rows; the booking date for adjustments.
+  allocationDate DateTime @map("allocation_date") @db.Date
+  correctionId   String?  @map("correction_id") @db.Uuid
+  backfillRunId  String?  @map("backfill_run_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business     Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product      Product                  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  deliveryItem DeliveryItem             @relation(fields: [deliveryItemId], references: [id], onDelete: Restrict)
+  batch        InventoryBatch?          @relation(fields: [businessId, batchId], references: [businessId, id], onDelete: Restrict)
+  correction   InventoryCostCorrection? @relation(fields: [correctionId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, deliveryItemId])
+  @@index([businessId, batchId])
+  @@index([businessId, productId, allocationDate])
+  @@index([correctionId])
+  @@map("delivery_item_allocations")
+}
+
+/// Every change to a batch's received side, append-only: the receipt itself, edits
+/// to its quantity, price or date, a void, found/lost bags. `businessDate` is the
+/// purchase or adjustment date for the receipt and the booking date for everything
+/// later, so opening and closing stock for any date is a plain sum and a closed
+/// month never changes. Delivery consumption lives in the allocations instead.
+model InventoryBatchEvent {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  batchId       String   @map("batch_id") @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  /// received, quantity_edit, price_edit, date_edit, void, adjust_in, adjust_out.
+  eventType     String   @map("event_type") @db.VarChar(16)
+  businessDate  DateTime @map("business_date") @db.Date
+  quantityDelta Decimal  @map("quantity_delta") @db.Decimal(14, 3)
+  /// Change in the batch's known value (zero for an unknown-cost batch).
+  valueDelta    Decimal  @map("value_delta") @db.Decimal(20, 6)
+  sourceType    String?  @map("source_type") @db.VarChar(16)
+  sourceId      String?  @map("source_id") @db.Uuid
+  correctionId  String?  @map("correction_id") @db.Uuid
+  reason        String?  @db.VarChar(500)
+  createdBy     String   @map("created_by") @db.Uuid
+  backfillRunId String?  @map("backfill_run_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business   Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  product    Product                  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  batch      InventoryBatch           @relation(fields: [businessId, batchId], references: [businessId, id], onDelete: Restrict)
+  correction InventoryCostCorrection? @relation(fields: [correctionId], references: [id], onDelete: Restrict)
+  creator    User                     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([businessId, batchId])
+  @@index([businessId, productId, businessDate])
+  @@index([correctionId])
+  @@index([createdBy])
+  @@map("inventory_batch_events")
+}
+
+/// One FIFO backfill run. The product pools as they were before it are kept so the
+/// run can be undone; everything it wrote carries this run's id.
+model InventoryBackfillRun {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  status       String    @db.VarChar(12)
+  /// Per product: pools before, and what was written.
+  summary      Json
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  rolledBackAt DateTime? @map("rolled_back_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@map("inventory_backfill_runs")
 }
 
 /// Bags bought per month (by purchase date), for commission progress. Changed
@@ -878,14 +1021,19 @@ model DeliveryItem {
   /// The part of this line that came out of the uncosted pool, so it has no
   /// cost basis at all. `costAmount` covers only the rest.
   uncostedQuantity Decimal  @default(0) @map("uncosted_quantity") @db.Decimal(14, 3)
+  /// Where the snapshot came from: `live` (FIFO, written when the delivery was made),
+  /// `backfill` (rebuilt from history after approval). Null = written before FIFO
+  /// batches existed (moving-average snapshot, or none).
+  costSource       String?  @map("cost_source") @db.VarChar(12)
   status           String   @default("active") @db.VarChar(8)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business  Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  delivery  Delivery       @relation(fields: [businessId, deliveryId], references: [businessId, id], onDelete: Restrict)
-  orderItem SalesOrderItem @relation(fields: [businessId, orderItemId], references: [businessId, id], onDelete: Restrict)
-  product   Product        @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  business    Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  delivery    Delivery                 @relation(fields: [businessId, deliveryId], references: [businessId, id], onDelete: Restrict)
+  orderItem   SalesOrderItem           @relation(fields: [businessId, orderItemId], references: [businessId, id], onDelete: Restrict)
+  product     Product                  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict)
+  allocations DeliveryItemAllocation[]
 
   @@unique([deliveryId, orderItemId])
   @@index([businessId, deliveryId])

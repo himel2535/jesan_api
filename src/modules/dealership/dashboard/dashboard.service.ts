@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
-import { fromDbDate, isCalendarDate, toDbDate, todayIn } from '../../../core/common/business-time';
+import {
+  addDays,
+  fromDbDate,
+  isCalendarDate,
+  toDbDate,
+  todayIn,
+} from '../../../core/common/business-time';
 import { badRequest } from '../../../core/errors';
 import { moneyString } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
@@ -189,8 +195,10 @@ export class DashboardService {
    * Net profit = sales − cost of goods sold − expenses + commission received.
    * Purchases are deliberately *not* subtracted: bags still in the warehouse are
    * an asset, not a cost. Only what was actually delivered is taken out, at the
-   * weighted average cost frozen onto each delivery line, plus any correction
-   * booked in this period for history that was edited later.
+   * FIFO cost frozen onto each delivery line (each bag at the price of the batch
+   * it came from), plus any correction booked in this period for history that was
+   * edited later. Bags with no known cost are counted and flagged, never priced at
+   * zero: `costComplete` is false while any were delivered in the window.
    *
    * Collection and customer due are reported but never fed into profit: money
    * coming in is not revenue, and a receivable is not an expense.
@@ -201,46 +209,72 @@ export class DashboardService {
     const db = this.prisma.forBusiness(access.businessId);
     const range = { gte: toDbDate(from), lte: toDbDate(to) };
 
-    const [deliveries, purchases, ledger, due, stock, snapshots, corrections, deliveredLines] =
-      await Promise.all([
-        db.delivery.aggregate({
-          where: { status: 'active', deliveryDate: range },
-          _sum: { totalAmount: true },
-        }),
-        db.purchase.aggregate({
-          where: { status: 'active', purchaseDate: range },
-          _sum: { totalAmount: true },
-        }),
-        db.businessLedgerEntry.groupBy({
-          by: ['type', 'direction'],
-          where: { status: 'active', entryDate: range },
-          _sum: { amount: true },
-        }),
-        db.customer.aggregate({
-          where: { isActive: true, currentBalance: { gt: 0 } },
-          _sum: { currentBalance: true },
-        }),
-        db.product.aggregate({
-          _sum: { currentStock: true, costedValue: true, uncostedQuantity: true },
-        }),
-        // Cost of goods sold: the frozen snapshot on every line delivered in the
-        // window. A line's delivery decides the period, not when it was costed.
-        db.deliveryItem.findMany({
-          where: { status: 'active', delivery: { status: 'active', deliveryDate: range } },
-          select: { costAmount: true, uncostedQuantity: true },
-        }),
-        db.inventoryCostCorrection.aggregate({
-          where: { correctionDate: range },
-          _sum: { cogsDelta: true },
-        }),
-        db.deliveryItem.count({
-          where: {
-            status: 'active',
-            costAmount: null,
-            delivery: { status: 'active', deliveryDate: range },
-          },
-        }),
-      ]);
+    const dayBefore = toDbDate(addDays(from, -1));
+    const [
+      deliveries,
+      purchases,
+      ledger,
+      due,
+      stock,
+      snapshots,
+      corrections,
+      deliveredLines,
+      products,
+      stockQuantityOpening,
+      stockQuantityClosing,
+      valueOpening,
+      valueClosing,
+    ] = await Promise.all([
+      db.delivery.aggregate({
+        where: { status: 'active', deliveryDate: range },
+        _sum: { totalAmount: true },
+      }),
+      db.purchase.aggregate({
+        where: { status: 'active', purchaseDate: range },
+        _sum: { totalAmount: true, totalQuantity: true },
+      }),
+      db.businessLedgerEntry.groupBy({
+        by: ['type', 'direction'],
+        where: { status: 'active', entryDate: range },
+        _sum: { amount: true },
+      }),
+      db.customer.aggregate({
+        where: { isActive: true, currentBalance: { gt: 0 } },
+        _sum: { currentBalance: true },
+      }),
+      db.product.aggregate({
+        _sum: { currentStock: true, costedValue: true },
+      }),
+      // Cost of goods sold: the frozen snapshot on every line delivered in the
+      // window. A line's delivery decides the period, not when it was costed.
+      db.deliveryItem.findMany({
+        where: { status: 'active', delivery: { status: 'active', deliveryDate: range } },
+        select: { costAmount: true, uncostedQuantity: true },
+      }),
+      db.inventoryCostCorrection.aggregate({
+        where: { correctionDate: range },
+        _sum: { cogsDelta: true },
+      }),
+      // Lines whose cost is not (fully) known: no cost at all, or some bags with none.
+      db.deliveryItem.count({
+        where: {
+          status: 'active',
+          OR: [{ costAmount: null }, { uncostedQuantity: { gt: 0 } }],
+          delivery: { status: 'active', deliveryDate: range },
+        },
+      }),
+      db.product.findMany({ select: { currentStock: true, costedQuantity: true } }),
+      db.stockMovement.aggregate({
+        where: { movementDate: { lte: dayBefore } },
+        _sum: { quantity: true },
+      }),
+      db.stockMovement.aggregate({
+        where: { movementDate: { lte: toDbDate(to) } },
+        _sum: { quantity: true },
+      }),
+      this.stockValueAt(db, dayBefore),
+      this.stockValueAt(db, toDbDate(to)),
+    ]);
 
     const amountOf = (type: string, direction: 'in' | 'out') =>
       ledger.find((row) => row.type === type && row.direction === direction)?._sum.amount ?? ZERO;
@@ -253,6 +287,13 @@ export class DashboardService {
       .reduce((sum, line) => sum.add(line.costAmount ?? ZERO), ZERO)
       .add(corrections._sum.cogsDelta ?? ZERO);
     const uncostedDelivered = snapshots.reduce((sum, line) => sum.add(line.uncostedQuantity), ZERO);
+    // Bags on hand with no known cost: everything not held in a costed batch (found bags, and
+    // stock from before batches existed).
+    const onHand = products.reduce((sum, row) => sum.add(row.currentStock), ZERO);
+    const costedOnHand = products.reduce((sum, row) => sum.add(row.costedQuantity), ZERO);
+    const productsWithUnknownCost = products.filter((row) =>
+      row.currentStock.greaterThan(row.costedQuantity),
+    ).length;
 
     return {
       from,
@@ -266,15 +307,58 @@ export class DashboardService {
       currentStockQuantity: (stock._sum.currentStock ?? ZERO).toFixed(3),
       currentStockValue: moneyString((stock._sum.costedValue ?? ZERO).toDecimalPlaces(2)),
       cogs: moneyString(cogs.toDecimalPlaces(2)),
+      grossProfit: moneyString(sales.sub(cogs).toDecimalPlaces(2)),
       netProfit: moneyString(
         sales.sub(cogs).sub(expenses).add(commissionReceived).toDecimalPlaces(2),
       ),
       // Non-zero means cost of goods sold is understated by an unknown amount,
       // so the dashboard warns rather than presenting the profit as complete.
       uncostedQuantityDelivered: uncostedDelivered.toFixed(3),
-      uncostedQuantityOnHand: (stock._sum.uncostedQuantity ?? ZERO).toFixed(3),
+      uncostedQuantityOnHand: onHand.sub(costedOnHand).toFixed(3),
       uncostedDeliveryLines: deliveredLines,
+      productsWithUnknownCostStock: productsWithUnknownCost,
+      // True only when every bag delivered in the window had a known cost; otherwise the
+      // cost of goods sold, gross profit and net profit are incomplete, not verified.
+      costComplete: uncostedDelivered.isZero() && deliveredLines === 0,
+      purchaseQuantity: (purchases._sum.totalQuantity ?? ZERO).toFixed(3),
+      openingStockQuantity: (stockQuantityOpening._sum.quantity ?? ZERO).toFixed(3),
+      closingStockQuantity: (stockQuantityClosing._sum.quantity ?? ZERO).toFixed(3),
+      openingStockValue: moneyString(valueOpening.toDecimalPlaces(2)),
+      closingStockValue: moneyString(valueClosing.toDecimalPlaces(2)),
     };
+  }
+
+  /**
+   * What the costed stock was worth at the end of `date`: everything received, edited or
+   * written off up to then (batch events), less the known cost of every bag delivered up to
+   * then. Deliveries count on their delivery date; adjustments made by corrected history on
+   * the day they were booked, so a closed month never changes. Stock whose cost is unknown
+   * has no value here.
+   */
+  private async stockValueAt(
+    db: ReturnType<PrismaService['forBusiness']>,
+    date: Date,
+  ): Promise<Prisma.Decimal> {
+    const [events, delivered, adjusted] = await Promise.all([
+      db.inventoryBatchEvent.aggregate({
+        where: { businessDate: { lte: date } },
+        _sum: { valueDelta: true },
+      }),
+      db.deliveryItemAllocation.aggregate({
+        where: {
+          kind: { in: ['original', 'reversal'] },
+          deliveryItem: { delivery: { deliveryDate: { lte: date } } },
+        },
+        _sum: { costAmount: true },
+      }),
+      db.deliveryItemAllocation.aggregate({
+        where: { kind: 'adjustment', allocationDate: { lte: date } },
+        _sum: { costAmount: true },
+      }),
+    ]);
+    return (events._sum.valueDelta ?? ZERO)
+      .sub(delivered._sum.costAmount ?? ZERO)
+      .sub(adjusted._sum.costAmount ?? ZERO);
   }
 
   /**

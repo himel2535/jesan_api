@@ -200,7 +200,23 @@ export class TestData {
         businessIds,
       ),
       db.$executeRawUnsafe(
+        'DELETE FROM delivery_item_allocations WHERE business_id = ANY($1::uuid[])',
+        businessIds,
+      ),
+      db.$executeRawUnsafe(
+        'DELETE FROM inventory_batch_events WHERE business_id = ANY($1::uuid[])',
+        businessIds,
+      ),
+      db.$executeRawUnsafe(
         'DELETE FROM inventory_cost_corrections WHERE business_id = ANY($1::uuid[])',
+        businessIds,
+      ),
+      db.$executeRawUnsafe(
+        'DELETE FROM inventory_batches WHERE business_id = ANY($1::uuid[])',
+        businessIds,
+      ),
+      db.$executeRawUnsafe(
+        'DELETE FROM inventory_backfill_runs WHERE business_id = ANY($1::uuid[])',
         businessIds,
       ),
     ]);

@@ -7,8 +7,13 @@
 //   ledger sums to delivered - collected, delivered = active deliveries,
 //   collected = active collections, pending bags = active orders not delivered;
 // - each order's delivered bags = its active delivery lines;
-// - each product's cost pools: costed + uncosted bags = current_stock, and
-//   costed value and costed quantity are zero together.
+// - each product's cost pools: costed + uncosted bags = current_stock, and the
+//   costed pool equals what the product's costed FIFO batches still hold;
+// - each FIFO batch: what is left = what came in, less what deliveries drew
+//   (net of reversals and corrections), plus found/lost bags written off;
+// - each delivery line costed under FIFO: its frozen snapshot equals what the
+//   delivery itself consumed (original less reversals), and the selling price
+//   is shared out to its batches exactly.
 // - the cash book (derived, no table of its own): the total net of active
 //   collections minus active expenses minus active cash purchases equals the
 //   same total added up day by day, for every business.
@@ -112,17 +117,53 @@ try {
      WHERE d.net <> coalesce(g.net, 0)`);
 
   // Inventory cost pools: the costed and uncosted bags together are the stock
-  // on hand, and value and quantity are empty together — a pool holding money
-  // but no bags (or bags recorded at no value) means costing has drifted.
-  // Before `npm run inventory:cost-backfill -- --commit` has been run, every
-  // product with stock shows up here; that is the signal to run it.
+  // on hand, and the costed pool is exactly what the costed batches still hold.
+  // A product from before FIFO batches existed has empty pools against real stock,
+  // so it shows up here until `npm run inventory:fifo-backfill` has been reviewed
+  // and committed (or until its first purchase or delivery fills the pools in).
   const costPools = await client.query(`
-    SELECT business_id, id, code, current_stock::text AS current_stock,
-           costed_quantity::text AS costed_quantity, costed_value::text AS costed_value,
-           uncosted_quantity::text AS uncosted_quantity
-      FROM products
-     WHERE costed_quantity + uncosted_quantity <> current_stock
-        OR (costed_quantity = 0) <> (costed_value = 0)`);
+    SELECT p.business_id, p.id, p.code, p.current_stock::text AS current_stock,
+           p.costed_quantity::text AS costed_quantity, p.costed_value::text AS costed_value,
+           p.uncosted_quantity::text AS uncosted_quantity
+      FROM products p
+     WHERE p.costed_quantity + p.uncosted_quantity <> p.current_stock
+        OR p.costed_quantity <> coalesce((SELECT sum(remaining_quantity) FROM inventory_batches b
+                                           WHERE b.product_id = p.id AND b.unit_cost IS NOT NULL), 0)
+        OR p.costed_value <> coalesce((SELECT sum(remaining_quantity * unit_cost) FROM inventory_batches b
+                                         WHERE b.product_id = p.id AND b.unit_cost IS NOT NULL), 0)`);
+
+  // FIFO batches: what a batch has left is what came in, less what deliveries drew from it.
+  const batches = await client.query(`
+    SELECT b.business_id, b.id, b.product_id, b.received_quantity::text AS received,
+           b.remaining_quantity::text AS remaining,
+           (b.received_quantity
+              - coalesce((SELECT sum(quantity) FROM delivery_item_allocations a WHERE a.batch_id = b.id), 0)
+              + coalesce((SELECT sum(quantity_delta) FROM inventory_batch_events e
+                           WHERE e.batch_id = b.id AND e.event_type = 'adjust_out'), 0))::text AS expected
+      FROM inventory_batches b
+     WHERE b.remaining_quantity <> b.received_quantity
+              - coalesce((SELECT sum(quantity) FROM delivery_item_allocations a WHERE a.batch_id = b.id), 0)
+              + coalesce((SELECT sum(quantity_delta) FROM inventory_batch_events e
+                           WHERE e.batch_id = b.id AND e.event_type = 'adjust_out'), 0)`);
+
+  // Delivery lines costed under FIFO: snapshot = what the delivery consumed; price shared out exactly.
+  const snapshots = await client.query(`
+    SELECT di.business_id, di.id, di.cost_amount::text AS snapshot,
+           coalesce((SELECT sum(cost_amount) FROM delivery_item_allocations a
+                      WHERE a.delivery_item_id = di.id AND a.kind IN ('original', 'reversal')), 0)::text AS allocated
+      FROM delivery_items di
+     WHERE di.cost_source IN ('live', 'backfill') AND di.status = 'active'
+       AND (coalesce(di.cost_amount, 0) <> coalesce((SELECT sum(cost_amount) FROM delivery_item_allocations a
+                      WHERE a.delivery_item_id = di.id AND a.kind IN ('original', 'reversal')), 0)
+         OR di.uncosted_quantity <> coalesce((SELECT sum(quantity) FROM delivery_item_allocations a
+                      WHERE a.delivery_item_id = di.id AND a.kind IN ('original', 'reversal') AND NOT a.cost_known), 0))`);
+  const revenue = await client.query(`
+    SELECT di.business_id, di.id, di.line_total::text AS line_total,
+           (SELECT sum(revenue_amount) FROM delivery_item_allocations a WHERE a.delivery_item_id = di.id)::text AS shared
+      FROM delivery_items di
+     WHERE di.status = 'active'
+       AND EXISTS (SELECT 1 FROM delivery_item_allocations a WHERE a.delivery_item_id = di.id)
+       AND di.line_total <> (SELECT sum(revenue_amount) FROM delivery_item_allocations a WHERE a.delivery_item_id = di.id)`);
 
   // Defensive: an active expense's kind always belongs to its own business
   // (the composite foreign key already guarantees this; this just says so).
@@ -167,7 +208,26 @@ try {
     console.error(
       `cost pool mismatch: business ${row.business_id} product ${row.code} (${row.id}): ` +
         `current ${row.current_stock}, costed ${row.costed_quantity} worth ${row.costed_value}, ` +
-        `uncosted ${row.uncosted_quantity} (run inventory:cost-backfill if costing has not been run yet)`,
+        `uncosted ${row.uncosted_quantity} (a product from before FIFO batches shows up here until ` +
+        `\`npm run inventory:fifo-backfill\` has been reviewed and committed)`,
+    );
+  }
+  for (const row of batches.rows) {
+    console.error(
+      `batch mismatch: business ${row.business_id} product ${row.product_id} batch ${row.id}: ` +
+        `received ${row.received}, remaining ${row.remaining}, expected ${row.expected}`,
+    );
+  }
+  for (const row of snapshots.rows) {
+    console.error(
+      `delivery snapshot mismatch: business ${row.business_id} line ${row.id}: ` +
+        `snapshot cost ${row.snapshot}, allocated ${row.allocated}`,
+    );
+  }
+  for (const row of revenue.rows) {
+    console.error(
+      `revenue share mismatch: business ${row.business_id} line ${row.id}: ` +
+        `line total ${row.line_total}, shared out ${row.shared}`,
     );
   }
   for (const row of expenseCategories.rows) {
@@ -183,12 +243,15 @@ try {
     orders.rows.length ||
     cashBook.rows.length ||
     costPools.rows.length ||
+    batches.rows.length ||
+    snapshots.rows.length ||
+    revenue.rows.length ||
     expenseCategories.rows.length
   ) {
     process.exitCode = 1;
   } else {
     console.log(
-      'Stock, cost pools, purchase counters, customer balances, orders, and the cash book are consistent.',
+      'Stock, cost pools and FIFO batches, purchase counters, customer balances, orders, and the cash book are consistent.',
     );
   }
 } finally {

@@ -304,17 +304,7 @@ export class DeliveriesService {
           })),
           (productId) => `items.${String(indexOf.get(productId) ?? 0)}.quantity`,
         );
-        // A delivery dated in the past slots into the middle of the product's
-        // timeline, where it can leave an earlier day short. Costing has no
-        // meaning there, so it is refused rather than guessed at.
-        if (deliveryDate < todayIn(config.timezone)) {
-          await this.costing.assertTimelineHolds(
-            tx,
-            lines.map((line) => line.orderItem.productId),
-            (productId) => `items.${String(indexOf.get(productId) ?? 0)}.quantity`,
-          );
-        }
-        await tx.deliveryItem.createMany({
+        const items = await tx.deliveryItem.createManyAndReturn({
           data: lines.map((line, at) => ({
             businessId: access.businessId,
             deliveryId: delivery.id,
@@ -323,11 +313,49 @@ export class DeliveriesService {
             quantity: line.quantity,
             unitPrice: line.orderItem.unitPrice,
             lineTotal: line.lineTotal,
+            // The snapshot frozen at the moment of delivery: what the bags taken from
+            // each batch cost. Unknown-cost bags are counted here, never priced at zero.
             unitCost: costs[at]?.unitCost ?? null,
             costAmount: costs[at]?.costAmount ?? null,
             uncostedQuantity: costs[at]?.uncostedQuantity ?? new Prisma.Decimal(0),
+            costSource: 'live',
           })),
+          select: { id: true, orderItemId: true },
         });
+        const itemOf = new Map(items.map((item) => [item.orderItemId, item.id]));
+        await Promise.all(
+          lines.map((line, at) =>
+            this.ledger.writeAllocations(tx, access.businessId, {
+              deliveryItemId: itemOf.get(line.orderItem.id) ?? '',
+              productId: line.orderItem.productId,
+              kind: 'original',
+              slices: costs[at]?.slices ?? [],
+              revenueTotal: line.lineTotal,
+              allocationDate: deliveryDate,
+            }),
+          ),
+        );
+        // A delivery dated in the past slots into the middle of the product's
+        // timeline: which batch each later delivery drew from may change, and it can
+        // leave an earlier day short. The timeline is replayed oldest-first; a
+        // shortfall refuses the delivery, and any difference is booked as a
+        // correction dated today rather than by rewriting earlier snapshots.
+        if (deliveryDate < todayIn(config.timezone)) {
+          await this.costing.recompute(
+            tx,
+            access.businessId,
+            actor.userId,
+            lines.map((line) => line.orderItem.productId),
+            {
+              kind: 'backdated_entry',
+              reason: null,
+              sourceType: 'delivery',
+              sourceId: delivery.id,
+              today: todayIn(config.timezone),
+              fieldFor: (productId) => `items.${String(indexOf.get(productId) ?? 0)}.quantity`,
+            },
+          );
+        }
         await Promise.all(
           lines.map((line) =>
             tx.salesOrderItem.update({

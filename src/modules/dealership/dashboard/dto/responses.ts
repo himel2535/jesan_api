@@ -38,17 +38,31 @@ export class FinanceSummaryResponse {
   /** Cost of the bags bought in the window, whether or not they have been sold. */
   @VisibleWith('profit.view') totalPurchase!: string;
   @VisibleWith('profit.view') currentStockQuantity!: string;
-  /** What the bags still in the warehouse are worth, at weighted average cost. */
+  /** What the bags still in the warehouse are worth: each batch at its own purchase price (FIFO). */
   @VisibleWith('profit.view') currentStockValue!: string;
   /** Sold Products Purchase Cost: snapshots of what was delivered, plus corrections booked now. */
   @VisibleWith('profit.view') cogs!: string;
+  /** sales − cogs. */
+  @VisibleWith('profit.view') grossProfit!: string;
   /** sales − cogs − expenses + commissionReceived. */
   @VisibleWith('profit.view') netProfit!: string;
   /** Bags delivered in the window with no cost basis; above zero, cogs is understated. */
   @VisibleWith('profit.view') uncostedQuantityDelivered!: string;
   @VisibleWith('profit.view') uncostedQuantityOnHand!: string;
-  /** Delivery lines in the window that were never costed (made before costing existed). */
+  /** Delivery lines in the window whose cost is unknown in whole or in part. */
   @VisibleWith('profit.view') uncostedDeliveryLines!: number;
+  /** Products holding bags with no known cost (found bags, or stock from before batches). */
+  @VisibleWith('profit.view') productsWithUnknownCostStock!: number;
+  /** False when any bag delivered in the window had no known cost: cogs and profit are then incomplete. */
+  @VisibleWith('profit.view') costComplete!: boolean;
+  /** Bags bought in the window (by purchase date). */
+  @VisibleWith('purchase.view') purchaseQuantity!: string;
+  /** Bags in the warehouse at the start (end of the day before `from`) and end (`to`) of the window. */
+  @Expose() openingStockQuantity!: string;
+  @Expose() closingStockQuantity!: string;
+  /** What the stock of known cost was worth at those two moments. Unknown-cost bags have no value. */
+  @VisibleWith('profit.view') openingStockValue!: string;
+  @VisibleWith('profit.view') closingStockValue!: string;
 }
 
 class MonthlySeriesRow {
