@@ -3,7 +3,7 @@ import { Prisma } from '../../../generated/prisma/client';
 import { AuditService } from '../../../core/audit/audit.service';
 import { ChangeValues } from '../../../core/approvals/change-handler';
 import { ChangeRequestsService } from '../../../core/approvals/change-requests.service';
-import { fromDbDate, toDbDate } from '../../../core/common/business-time';
+import { fromDbDate, toDbDate, todayIn } from '../../../core/common/business-time';
 import { moneyString, toDecimal } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
 import { lockRows } from '../../../core/database/row-lock';
@@ -18,6 +18,7 @@ import { Actor, PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
 import { fitsUnit, lineTotalOf } from '../purchases/purchases.service';
 import { StockLedger, quantityString } from '../stock/stock-ledger';
+import { InventoryCostingService } from '../stock/inventory-costing.service';
 import { CustomerAccounts } from './customer-accounts';
 import { CreateDeliveryDto, DeliveryListQueryDto, UpdateDeliveryDto } from './dto/requests';
 import { CODE_WIDTH, orderNotFound } from './orders.service';
@@ -130,6 +131,7 @@ export class DeliveriesService {
     private readonly context: DealershipContext,
     private readonly counters: DocumentCounterService,
     private readonly ledger: StockLedger,
+    private readonly costing: InventoryCostingService,
     private readonly accounts: CustomerAccounts,
     private readonly audit: AuditService,
     private readonly changes: ChangeRequestsService,
@@ -284,19 +286,10 @@ export class DeliveriesService {
           },
           select: { id: true, code: true },
         });
-        await tx.deliveryItem.createMany({
-          data: lines.map((line) => ({
-            businessId: access.businessId,
-            deliveryId: delivery.id,
-            orderItemId: line.orderItem.id,
-            productId: line.orderItem.productId,
-            quantity: line.quantity,
-            unitPrice: line.orderItem.unitPrice,
-            lineTotal: line.lineTotal,
-          })),
-        });
         const indexOf = new Map(lines.map((line) => [line.orderItem.productId, line.index]));
-        await this.ledger.apply(
+        // Stock moves first so costing can tell us what these bags cost; the
+        // lines are then written with that snapshot frozen onto them.
+        const costs = await this.ledger.apply(
           tx,
           access.businessId,
           actor.userId,
@@ -311,6 +304,30 @@ export class DeliveriesService {
           })),
           (productId) => `items.${String(indexOf.get(productId) ?? 0)}.quantity`,
         );
+        // A delivery dated in the past slots into the middle of the product's
+        // timeline, where it can leave an earlier day short. Costing has no
+        // meaning there, so it is refused rather than guessed at.
+        if (deliveryDate < todayIn(config.timezone)) {
+          await this.costing.assertTimelineHolds(
+            tx,
+            lines.map((line) => line.orderItem.productId),
+            (productId) => `items.${String(indexOf.get(productId) ?? 0)}.quantity`,
+          );
+        }
+        await tx.deliveryItem.createMany({
+          data: lines.map((line, at) => ({
+            businessId: access.businessId,
+            deliveryId: delivery.id,
+            orderItemId: line.orderItem.id,
+            productId: line.orderItem.productId,
+            quantity: line.quantity,
+            unitPrice: line.orderItem.unitPrice,
+            lineTotal: line.lineTotal,
+            unitCost: costs[at]?.unitCost ?? null,
+            costAmount: costs[at]?.costAmount ?? null,
+            uncostedQuantity: costs[at]?.uncostedQuantity ?? new Prisma.Decimal(0),
+          })),
+        });
         await Promise.all(
           lines.map((line) =>
             tx.salesOrderItem.update({

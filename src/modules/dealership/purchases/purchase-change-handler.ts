@@ -24,6 +24,7 @@ import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { parseDealershipConfig } from '../dealership.config';
 import { DEALERSHIP_TYPE } from '../dealership.permissions';
 import { StockEntry, StockLedger, quantityString, stockInsufficient } from '../stock/stock-ledger';
+import { InventoryCostingService } from '../stock/inventory-costing.service';
 import { QUANTITY_PATTERN } from './dto/requests';
 import { PURCHASE_COUNTER_TABLE, fitsUnit, lineTotalOf } from './purchases.service';
 
@@ -103,6 +104,7 @@ export class PurchaseChangeHandler implements ChangeHandler {
     private readonly ledger: StockLedger,
     private readonly periods: PeriodCounterService,
     private readonly businessLedger: BusinessLedgerService,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   fieldRule(key: string): FieldRule | undefined {
@@ -376,6 +378,7 @@ export class PurchaseChangeHandler implements ChangeHandler {
         sourceType: 'purchase' as const,
         sourceId: id,
         reason,
+        unitCost: next.prices.get(line.id) ?? line.unitPrice,
       }));
     const byProduct = new Map(state.lines.map((line) => [line.productId, line.id]));
     await this.ledger.apply(
@@ -458,6 +461,24 @@ export class PurchaseChangeHandler implements ChangeHandler {
         state.lines.map((line) => line.productId),
         state.timezone,
       );
+      // A corrected price, quantity or date changes the average every later
+      // delivery should have been costed at. Those snapshots stay frozen; the
+      // timeline is replayed and the difference booked as a correction dated
+      // today. This runs even when no stock moved — a price-only edit writes no
+      // movement at all, and is exactly the case that would otherwise be missed.
+      await this.costing.recompute(
+        tx,
+        ctx.businessId,
+        ctx.actorUserId,
+        state.lines.map((line) => line.productId),
+        {
+          kind: 'purchase_edit',
+          reason,
+          sourceType: 'purchase',
+          sourceId: id,
+          today,
+        },
+      );
     }
   }
 
@@ -486,6 +507,8 @@ export class PurchaseChangeHandler implements ChangeHandler {
         sourceType: 'purchase' as const,
         sourceId: id,
         reason,
+        // Reverse the receipt at the price it came in at.
+        unitCost: line.unitPrice,
       })),
     );
     await tx.purchase.update({
@@ -513,6 +536,15 @@ export class PurchaseChangeHandler implements ChangeHandler {
       tx,
       state.lines.map((line) => line.productId),
       state.timezone,
+    );
+    // The voided bags never belonged to the average, so every later delivery is
+    // re-costed without them and the difference is booked as a correction.
+    await this.costing.recompute(
+      tx,
+      ctx.businessId,
+      ctx.actorUserId,
+      state.lines.map((line) => line.productId),
+      { kind: 'purchase_void', reason, sourceType: 'purchase', sourceId: id, today },
     );
     await this.businessLedger.voidByReference(tx, ctx.businessId, 'purchase', id);
   }
