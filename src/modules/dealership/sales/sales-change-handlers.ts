@@ -17,8 +17,8 @@ import { DealershipConfig, parseDealershipConfig } from '../dealership.config';
 import { DEALERSHIP_TYPE } from '../dealership.permissions';
 import { QUANTITY_PATTERN } from '../purchases/dto/requests';
 import { fitsUnit, lineTotalOf } from '../purchases/purchases.service';
-import { StockLedger, quantityString } from '../stock/stock-ledger';
-import { VALUE_SCALE } from '../stock/inventory-cost';
+import { StockLedger, lineSnapshot, quantityString } from '../stock/stock-ledger';
+import { InventoryCostingService } from '../stock/inventory-costing.service';
 import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { CustomerAccounts } from './customer-accounts';
 import { tooMuch } from './deliveries.service';
@@ -554,11 +554,6 @@ interface DeliveryLine {
   unitPrice: Prisma.Decimal;
   /** Most this line may hold: what the order line still allows plus this line's quantity. */
   capacity: Prisma.Decimal;
-  /** What these bags cost when they left, so a return puts back the same value. */
-  unitCost: Prisma.Decimal | null;
-  costAmount: Prisma.Decimal | null;
-  /** The part of this line that left with no cost basis. */
-  uncostedQuantity: Prisma.Decimal;
 }
 
 interface DeliveryState {
@@ -569,6 +564,7 @@ interface DeliveryState {
   orderDate: string;
   orderTotal: Prisma.Decimal;
   orderDelivered: Prisma.Decimal;
+  deliveryDate: string;
   timezone: string;
   lines: DeliveryLine[];
 }
@@ -597,6 +593,7 @@ export class DeliveryChangeHandler implements ChangeHandler {
   constructor(
     private readonly ledger: StockLedger,
     private readonly accounts: CustomerAccounts,
+    private readonly costing: InventoryCostingService,
   ) {}
 
   fieldRule(key: string): FieldRule | undefined {
@@ -641,9 +638,6 @@ export class DeliveryChangeHandler implements ChangeHandler {
               productId: true,
               quantity: true,
               unitPrice: true,
-              unitCost: true,
-              costAmount: true,
-              uncostedQuantity: true,
               product: { select: { code: true, unitKey: true } },
               orderItem: { select: { quantity: true, deliveredQuantity: true } },
             },
@@ -662,6 +656,7 @@ export class DeliveryChangeHandler implements ChangeHandler {
       orderDate: fromDbDate(delivery.order.orderDate),
       orderTotal: delivery.order.totalQuantity,
       orderDelivered: delivery.order.deliveredQuantity,
+      deliveryDate: fromDbDate(delivery.deliveryDate),
       timezone: config.timezone,
       lines: delivery.items.map((item) => ({
         id: item.id,
@@ -673,9 +668,6 @@ export class DeliveryChangeHandler implements ChangeHandler {
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         capacity: item.orderItem.quantity.sub(item.orderItem.deliveredQuantity).add(item.quantity),
-        unitCost: item.unitCost,
-        costAmount: item.costAmount,
-        uncostedQuantity: item.uncostedQuantity,
       })),
     };
     const values: ChangeValues = {
@@ -825,6 +817,24 @@ export class DeliveryChangeHandler implements ChangeHandler {
         updatedBy: ctx.actorUserId,
       },
     });
+    if ('deliveryDate' in values && String(values['deliveryDate']) !== state.deliveryDate) {
+      // A moved date reorders the product's timeline, and with it which batch each
+      // delivery drew from. Replayed oldest-first; the difference is booked as a
+      // correction dated today, never by rewriting the delivery's own snapshot.
+      await this.costing.recompute(
+        tx,
+        ctx.businessId,
+        ctx.actorUserId,
+        state.lines.map((line) => line.productId),
+        {
+          kind: 'backdated_entry',
+          reason: ctx.reason || null,
+          sourceType: 'delivery',
+          sourceId: id,
+          today: todayIn(state.timezone),
+        },
+      );
+    }
   }
 
   async applyVoid(
@@ -933,60 +943,42 @@ export class DeliveryChangeHandler implements ChangeHandler {
         sourceType: 'delivery' as const,
         sourceId: state.id,
         reason,
-        // Cutting a line down or voiding it sends bags back: they return at the
-        // cost they left with, never at today's average, so value out and value
-        // back in cancel exactly. The uncosted share returns in proportion.
-        ...(change.qtyDelta.isNegative()
-          ? {
-              returnOf: {
-                unitCost: change.line.unitCost,
-                uncostedQuantity: change.line.quantity.isZero()
-                  ? ZERO
-                  : change.line.uncostedQuantity
-                      .mul(change.qtyDelta.negated())
-                      .div(change.line.quantity)
-                      .toDecimalPlaces(3),
-              },
-            }
-          : {}),
+        // Cutting a line down or voiding it sends bags back: they go to the
+        // batches they left, at the cost they left with, never at a new price.
+        ...(change.qtyDelta.isNegative() ? { returnOf: { deliveryItemId: change.line.id } } : {}),
       })),
       (productId) => `${ctx.fieldPrefix}items.${byProduct.get(productId) ?? ''}.quantity`,
     );
 
-    // A corrected quantity changes what this line actually cost. Growing it
-    // issues more bags at today's average; shrinking it gives back a share of
-    // what the line already held. A void leaves the line alone — it is marked
-    // void and stops counting towards cost of goods sold that way.
+    // Which batches the extra (or returned) bags came from, with the share of the
+    // line's price each carries. Appended; what the line already holds is untouched.
+    await Promise.all(
+      changes.map((change, at) =>
+        this.ledger.writeAllocations(tx, ctx.businessId, {
+          deliveryItemId: change.line.id,
+          productId: change.line.productId,
+          kind: change.qtyDelta.isNegative() ? 'reversal' : 'original',
+          slices: costs[at]?.slices ?? [],
+          revenueTotal: change.amountDelta,
+          allocationDate: state.deliveryDate,
+        }),
+      ),
+    );
+
+    // A corrected quantity changes what this line actually cost: its snapshot is
+    // what the delivery itself consumed (original less reversals). A void leaves
+    // the line alone — it is marked void and stops counting towards cost of
+    // goods sold that way.
     if (kind === 'delivery_edit') {
       await Promise.all(
-        changes.map((change, at) => {
-          const line = change.line;
-          const costedBefore = line.quantity.sub(line.uncostedQuantity);
-          let costAmount = line.costAmount ?? ZERO;
-          let uncosted = line.uncostedQuantity;
-          if (change.qtyDelta.isNegative()) {
-            uncosted = line.quantity.isZero()
-              ? ZERO
-              : uncosted.mul(change.next).div(line.quantity).toDecimalPlaces(3);
-            costAmount = costedBefore.isZero()
-              ? ZERO
-              : costAmount
-                  .mul(change.next.sub(uncosted))
-                  .div(costedBefore)
-                  .toDecimalPlaces(VALUE_SCALE);
-          } else {
-            costAmount = costAmount.add(costs[at]?.costAmount ?? ZERO);
-            uncosted = uncosted.add(costs[at]?.uncostedQuantity ?? ZERO);
-          }
-          const costedAfter = change.next.sub(uncosted);
+        changes.map(async (change) => {
+          const snapshot = await lineSnapshot(tx, change.line.id);
           return tx.deliveryItem.update({
-            where: { id: line.id },
+            where: { id: change.line.id },
             data: {
-              unitCost: costedAfter.greaterThan(0)
-                ? costAmount.div(costedAfter).toDecimalPlaces(VALUE_SCALE)
-                : null,
-              costAmount: line.unitCost === null && costedAfter.isZero() ? null : costAmount,
-              uncostedQuantity: uncosted,
+              unitCost: snapshot.unitCost,
+              costAmount: snapshot.costAmount,
+              uncostedQuantity: snapshot.uncostedQuantity,
             },
           });
         }),

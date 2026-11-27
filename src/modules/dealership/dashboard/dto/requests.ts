@@ -26,15 +26,8 @@ export class DashboardYearQueryDto {
 }
 
 /**
- * The four KPI figures for one window, and optionally a second window to compare with.
- * `prevFrom` and `prevTo` come together or not at all.
+ * The four KPI figures for one window. There is no comparison window: the dashboard shows the
+ * figure for what is selected and asks for nothing else (`prevFrom`/`prevTo` were removed, and are
+ * now refused as unknown parameters).
  */
-export class DashboardKpisQueryDto extends DashboardCashbookQueryDto {
-  @IsOptional()
-  @Matches(DATE_PATTERN, { message: `prevFrom ${DATE_MESSAGE}` })
-  prevFrom?: string;
-
-  @IsOptional()
-  @Matches(DATE_PATTERN, { message: `prevTo ${DATE_MESSAGE}` })
-  prevTo?: string;
-}
+export class DashboardKpisQueryDto extends DashboardCashbookQueryDto {}

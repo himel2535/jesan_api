@@ -1,16 +1,24 @@
 import { ConflictException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
-import { dayStartIn, toDbDate } from '../../../core/common/business-time';
+import { dayStartIn, fromDbDate, toDbDate } from '../../../core/common/business-time';
+import { uuid7 } from '../../../core/common/uuid7';
 import { lockRows } from '../../../core/database/row-lock';
 import { errorBody } from '../../../core/errors';
 import {
-  applyIssue,
-  applyReceipt,
-  applyReceiptReversal,
-  applyReturn,
-  emptyPools,
-  type Pools,
-} from './inventory-cost';
+  costedPool,
+  distributeMoney,
+  issue,
+  netSlices,
+  restore,
+  snapshotOf,
+  sliceOf,
+  takeBack,
+  uncostedOnHand,
+  type FifoState,
+  type Slice,
+} from './fifo';
+
+const ZERO = new Prisma.Decimal(0);
 
 export type MovementKind =
   | 'purchase'
@@ -32,29 +40,27 @@ export interface StockEntry {
   sourceId: string | null;
   reason: string | null;
   /**
-   * What these bags cost to acquire, for goods coming in from a purchase. Left
-   * out when nothing is known (a found-bags adjustment), and those bags then
-   * join the uncosted pool instead of moving the average.
+   * What these bags cost to acquire, for a purchase receipt: it becomes the
+   * price of that purchase's own batch and never changes with later purchases.
    */
   unitCost?: Prisma.Decimal | null;
   /**
-   * Goods coming back from a delivery that was voided or cut down. They return
-   * at the cost snapshotted when they left, so the value put back is exactly
-   * the value taken out; `uncostedQuantity` is the part that left with no cost.
+   * Bags coming back from a delivery line that was voided or cut down. They go
+   * back to the batches they left, at the cost they left with.
    */
-  returnOf?: { unitCost: Prisma.Decimal | null; uncostedQuantity: Prisma.Decimal };
+  returnOf?: { deliveryItemId: string };
 }
 
-/** What costing did with one entry, for the caller to snapshot on its own line. */
+/** What costing did with one entry, for the caller to freeze on its own line. */
 export interface CostOutcome {
-  /** The moving average at the moment of an issue; null when nothing is costed. */
+  /** The slices an issue took, oldest batch first; for a return, the slices that went back. */
+  slices: Slice[];
+  /** Average cost of the known bags in `slices`; null when none had a cost. */
   unitCost: Prisma.Decimal | null;
-  /** Value taken out of (or put into) the costed pool. */
-  costAmount: Prisma.Decimal;
-  /** The part of an issue that had no cost basis at all. */
+  /** Cost of the known bags; null when none had a cost (never zero). */
+  costAmount: Prisma.Decimal | null;
+  /** The part with no cost basis at all. */
   uncostedQuantity: Prisma.Decimal;
-  /** Value stranded when the costed pool emptied; booked as a residual. */
-  roundingResidual: Prisma.Decimal;
 }
 
 /** Quantities leave the API as plain decimal strings: "50", "12.5". */
@@ -88,11 +94,90 @@ export function stockInsufficient(
   });
 }
 
+/** Working copy of one product's batches while a call to `apply` runs. */
+interface Working {
+  state: FifoState;
+  /** Receipt date of each batch, parallel to `state.batches`. */
+  dates: string[];
+  /** Insertion order of each batch, parallel to `state.batches` (the tie-break within a day). */
+  seqs: bigint[];
+  created: {
+    id: string;
+    sourceType: 'purchase' | 'adjustment';
+    sourceId: string | null;
+    quantity: Prisma.Decimal;
+    unitCost: Prisma.Decimal | null;
+    date: string;
+    entryIndex: number;
+    reason: string | null;
+  }[];
+  touched: Set<string>;
+  events: {
+    batchId: string;
+    eventType: 'received' | 'adjust_in' | 'adjust_out';
+    date: string;
+    quantity: Prisma.Decimal;
+    value: Prisma.Decimal;
+    sourceType: string | null;
+    sourceId: string | null;
+    reason: string | null;
+  }[];
+}
+
+/** Slices of a delivery line's net allocations: what it holds now, in batch order. */
+export async function allocationSlices(
+  tx: Prisma.TransactionClient,
+  deliveryItemId: string,
+): Promise<Slice[]> {
+  const rows = await tx.deliveryItemAllocation.findMany({
+    where: { deliveryItemId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { batchId: true, quantity: true, unitCost: true, costAmount: true },
+  });
+  return netSlices(
+    rows.map((row) => ({
+      batchKey: row.batchId,
+      quantity: row.quantity,
+      unitCost: row.unitCost,
+      costAmount: row.costAmount,
+    })),
+  );
+}
+
+/**
+ * What a delivery line froze at the time: what the delivery itself consumed
+ * (original allocations less reversals). Accounting adjustments made later by
+ * corrected history are deliberately left out; they live in the corrections.
+ */
+export async function lineSnapshot(tx: Prisma.TransactionClient, deliveryItemId: string) {
+  const rows = await tx.deliveryItemAllocation.findMany({
+    where: { deliveryItemId, kind: { in: ['original', 'reversal'] } },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { batchId: true, quantity: true, unitCost: true, costAmount: true },
+  });
+  return snapshotOf(
+    netSlices(
+      rows.map((row) => ({
+        batchKey: row.batchId,
+        quantity: row.quantity,
+        unitCost: row.unitCost,
+        costAmount: row.costAmount,
+      })),
+    ),
+  );
+}
+
 /**
  * The only way stock changes. Inside the caller's transaction: lock the
  * products (id order, no deadlocks), refuse any balance below zero, append the
  * movements with the balance after each, and move current_stock by the same
  * amount. So current_stock always equals the sum of the movements.
+ *
+ * Stock is costed FIFO, batch by batch (see `fifo.ts`): a purchase receipt
+ * opens its own batch at its own price, found bags open an unknown-cost batch,
+ * and every issue takes the oldest bags first and says which batches they came
+ * from. Purchase edits and voids are *not* costed here: their batches are
+ * rebuilt by `InventoryCostingService.recompute`, which replays the history.
  */
 @Injectable()
 export class StockLedger {
@@ -114,28 +199,15 @@ export class StockLedger {
     await this.lock(tx, businessId, productIds);
     const stocks = await tx.product.findMany({
       where: { id: { in: productIds } },
-      select: {
-        id: true,
-        currentStock: true,
-        costedQuantity: true,
-        costedValue: true,
-        uncostedQuantity: true,
-      },
+      select: { id: true, currentStock: true },
     });
     const balance = new Map(stocks.map((row) => [row.id, row.currentStock]));
-    const pools = new Map<string, Pools>(
-      stocks.map((row) => [
-        row.id,
-        {
-          costedQuantity: row.costedQuantity,
-          costedValue: row.costedValue,
-          uncostedQuantity: row.uncostedQuantity,
-        },
-      ]),
-    );
+    const working = await this.load(tx, productIds, balance);
 
-    const rows = moving.map(({ entry, index }) => {
-      const before = balance.get(entry.productId) ?? new Prisma.Decimal(0);
+    const movementIds = moving.map(() => uuid7());
+    const rows = [];
+    for (const [at, { entry, index }] of moving.entries()) {
+      const before = balance.get(entry.productId) ?? ZERO;
       const after = before.add(entry.quantity);
       if (after.isNegative()) {
         throw stockInsufficient(
@@ -146,8 +218,12 @@ export class StockLedger {
         );
       }
       balance.set(entry.productId, after);
-      outcomes[index] = this.cost(pools, entry);
-      return {
+      const work = working.get(entry.productId);
+      if (work) {
+        outcomes[index] = await this.cost(tx, work, entry, movementIds[at] ?? '', index);
+      }
+      rows.push({
+        id: movementIds[at],
         businessId,
         productId: entry.productId,
         kind: entry.kind,
@@ -158,68 +234,290 @@ export class StockLedger {
         sourceId: entry.sourceId,
         reason: entry.reason,
         createdBy: actorUserId,
-      };
-    });
+      });
+    }
     await tx.stockMovement.createMany({ data: rows });
-
-    // Stock and its value move in the same statement, so the pools can never
-    // drift away from current_stock.
-    await Promise.all(
-      [...pools.entries()].map(([productId, next]) =>
-        tx.product.update({
-          where: { id: productId },
-          data: {
-            currentStock: balance.get(productId) ?? new Prisma.Decimal(0),
-            costedQuantity: next.costedQuantity,
-            costedValue: next.costedValue,
-            uncostedQuantity: next.uncostedQuantity,
-          },
-        }),
-      ),
-    );
+    await this.persist(tx, businessId, actorUserId, working, balance);
     return outcomes;
   }
 
-  /** Moves one entry through the product's cost pools (see `inventory-cost.ts`). */
-  private cost(pools: Map<string, Pools>, entry: StockEntry): CostOutcome {
-    const current = pools.get(entry.productId) ?? emptyPools();
-    const none = {
-      unitCost: null,
-      costAmount: new Prisma.Decimal(0),
-      uncostedQuantity: new Prisma.Decimal(0),
-      roundingResidual: new Prisma.Decimal(0),
-    };
-    if (entry.quantity.isNegative() && entry.sourceType === 'purchase') {
-      // Undoing a receipt: the bags leave at the price they arrived at.
-      pools.set(
-        entry.productId,
-        applyReceiptReversal(current, entry.quantity.negated(), entry.unitCost ?? null),
-      );
+  /** Each product's open batches, oldest first, and the bags that belong to none. */
+  private async load(
+    tx: Prisma.TransactionClient,
+    productIds: readonly string[],
+    balance: Map<string, Prisma.Decimal>,
+  ): Promise<Map<string, Working>> {
+    const batches = await tx.inventoryBatch.findMany({
+      where: { productId: { in: [...productIds] }, remainingQuantity: { gt: 0 } },
+      orderBy: [{ receivedDate: 'asc' }, { seq: 'asc' }],
+      select: {
+        id: true,
+        productId: true,
+        unitCost: true,
+        remainingQuantity: true,
+        receivedDate: true,
+        seq: true,
+      },
+    });
+    const result = new Map<string, Working>();
+    for (const productId of productIds) {
+      const own = batches.filter((batch) => batch.productId === productId);
+      const inBatches = own.reduce((sum, batch) => sum.add(batch.remainingQuantity), ZERO);
+      // Bags on hand that no batch accounts for: stock from before batches existed.
+      const legacy = Prisma.Decimal.max((balance.get(productId) ?? ZERO).sub(inBatches), ZERO);
+      result.set(productId, {
+        state: {
+          legacy,
+          batches: own.map((batch) => ({
+            key: batch.id,
+            unitCost: batch.unitCost,
+            remaining: batch.remainingQuantity,
+          })),
+        },
+        dates: own.map((batch) => fromDbDate(batch.receivedDate)),
+        seqs: own.map((batch) => batch.seq),
+        created: [],
+        touched: new Set(),
+        events: [],
+      });
+    }
+    return result;
+  }
+
+  /** Moves one entry through its product's batches. */
+  private async cost(
+    tx: Prisma.TransactionClient,
+    work: Working,
+    entry: StockEntry,
+    movementId: string,
+    entryIndex: number,
+  ): Promise<CostOutcome | null> {
+    const none = null;
+    if (entry.kind === 'purchase_edit' || entry.kind === 'purchase_void') {
+      // Rebuilt from history by `recompute`, which every purchase edit and void calls.
       return none;
     }
     if (entry.quantity.isNegative()) {
-      const issue = applyIssue(current, entry.quantity.negated());
-      pools.set(entry.productId, issue.pools);
-      return {
-        unitCost: issue.unitCost,
-        costAmount: issue.costAmount,
-        uncostedQuantity: issue.uncostedQuantity,
-        roundingResidual: issue.roundingResidual,
-      };
+      const out = issue(work.state, entry.quantity.negated());
+      work.state = out.state;
+      for (const slice of out.slices) {
+        if (slice.batchKey) work.touched.add(slice.batchKey);
+        if (entry.kind === 'adjustment' && slice.batchKey) {
+          work.events.push({
+            batchId: slice.batchKey,
+            eventType: 'adjust_out',
+            date: entry.movementDate,
+            quantity: slice.quantity.negated(),
+            value: slice.costAmount?.negated() ?? ZERO,
+            sourceType: 'adjustment',
+            sourceId: movementId,
+            reason: entry.reason,
+          });
+        }
+      }
+      return { slices: out.slices, ...snapshotOf(out.slices) };
     }
     if (entry.returnOf) {
-      pools.set(
-        entry.productId,
-        applyReturn(current, {
-          costedQuantity: entry.quantity.sub(entry.returnOf.uncostedQuantity),
-          unitCost: entry.returnOf.unitCost,
-          uncostedQuantity: entry.returnOf.uncostedQuantity,
-        }),
+      const held = await allocationSlices(tx, entry.returnOf.deliveryItemId);
+      const back = takeBack(held, entry.quantity);
+      const returned = back.shortfall.greaterThan(0)
+        ? [...back.returned, sliceOf(null, back.shortfall, null)]
+        : back.returned;
+      // Bags go back to the batch they left, even one that has since run empty.
+      await this.reopen(
+        tx,
+        work,
+        returned.flatMap((slice) => (slice.batchKey ? [slice.batchKey] : [])),
       );
+      work.state = restore(work.state, returned);
+      for (const slice of returned) if (slice.batchKey) work.touched.add(slice.batchKey);
+      return { slices: returned, ...snapshotOf(returned) };
+    }
+    if (entry.kind === 'purchase') {
+      if (entry.unitCost === undefined || entry.unitCost === null) {
+        throw new Error('A purchase receipt must carry the price of its bags');
+      }
+      this.open(work, entry, 'purchase', entry.sourceId, entry.unitCost, movementId, entryIndex);
       return none;
     }
-    pools.set(entry.productId, applyReceipt(current, entry.quantity, entry.unitCost ?? null));
+    // Found bags: counted, never valued.
+    this.open(work, entry, 'adjustment', movementId, null, movementId, entryIndex);
     return none;
+  }
+
+  /** Brings batches that ran empty back into the working list, in their place in the order. */
+  private async reopen(
+    tx: Prisma.TransactionClient,
+    work: Working,
+    ids: readonly string[],
+  ): Promise<void> {
+    const have = new Set(work.state.batches.map((batch) => batch.key));
+    const missing = ids.filter((id) => !have.has(id));
+    if (missing.length === 0) return;
+    const rows = await tx.inventoryBatch.findMany({
+      where: { id: { in: missing } },
+      select: { id: true, unitCost: true, receivedDate: true, seq: true },
+    });
+    for (const row of rows) {
+      const date = fromDbDate(row.receivedDate);
+      let at = work.dates.length;
+      while (
+        at > 0 &&
+        ((work.dates[at - 1] ?? '') > date ||
+          ((work.dates[at - 1] ?? '') === date && (work.seqs[at - 1] ?? 0n) > row.seq))
+      ) {
+        at -= 1;
+      }
+      work.state.batches.splice(at, 0, { key: row.id, unitCost: row.unitCost, remaining: ZERO });
+      work.dates.splice(at, 0, date);
+      work.seqs.splice(at, 0, row.seq);
+    }
+  }
+
+  /** Opens a batch for bags coming in; it sits after every batch received on or before its date. */
+  private open(
+    work: Working,
+    entry: StockEntry,
+    sourceType: 'purchase' | 'adjustment',
+    sourceId: string | null,
+    unitCost: Prisma.Decimal | null,
+    movementId: string,
+    entryIndex: number,
+  ): void {
+    const id = uuid7();
+    let at = work.dates.length;
+    while (at > 0 && (work.dates[at - 1] ?? '') > entry.movementDate) at -= 1;
+    work.state.batches.splice(at, 0, { key: id, unitCost, remaining: entry.quantity });
+    work.dates.splice(at, 0, entry.movementDate);
+    // Not written yet, so it sorts after anything already on its day.
+    work.seqs.splice(at, 0, BigInt(Number.MAX_SAFE_INTEGER));
+    work.created.push({
+      id,
+      sourceType,
+      sourceId,
+      quantity: entry.quantity,
+      unitCost,
+      date: entry.movementDate,
+      entryIndex,
+      reason: entry.reason,
+    });
+    work.events.push({
+      batchId: id,
+      eventType: sourceType === 'purchase' ? 'received' : 'adjust_in',
+      date: entry.movementDate,
+      quantity: entry.quantity,
+      value: unitCost === null ? ZERO : entry.quantity.mul(unitCost),
+      sourceType: entry.sourceType,
+      sourceId: movementId === sourceId ? movementId : entry.sourceId,
+      reason: entry.reason,
+    });
+  }
+
+  /** Writes what the entries did: batches, their events, and the product's stock and pools. */
+  private async persist(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    actorUserId: string,
+    working: Map<string, Working>,
+    balance: Map<string, Prisma.Decimal>,
+  ): Promise<void> {
+    for (const [productId, work] of working) {
+      const remaining = new Map(work.state.batches.map((batch) => [batch.key, batch.remaining]));
+      const createdIds = new Set(work.created.map((batch) => batch.id));
+      if (work.created.length > 0) {
+        await tx.inventoryBatch.createMany({
+          data: work.created.map((batch) => ({
+            id: batch.id,
+            businessId,
+            productId,
+            sourceType: batch.sourceType,
+            // A purchase batch is keyed by its purchase; found bags by their own movement.
+            sourceId: batch.sourceId ?? batch.id,
+            originalQuantity: batch.quantity,
+            originalUnitCost: batch.unitCost,
+            originalReceivedDate: toDbDate(batch.date),
+            receivedQuantity: batch.quantity,
+            unitCost: batch.unitCost,
+            receivedDate: toDbDate(batch.date),
+            remainingQuantity: remaining.get(batch.id) ?? batch.quantity,
+          })),
+        });
+      }
+      await Promise.all(
+        [...work.touched]
+          .filter((id) => !createdIds.has(id))
+          .map((id) =>
+            tx.inventoryBatch.update({
+              where: { id },
+              data: { remainingQuantity: remaining.get(id) ?? ZERO },
+            }),
+          ),
+      );
+      if (work.events.length > 0) {
+        await tx.inventoryBatchEvent.createMany({
+          data: work.events.map((event) => ({
+            businessId,
+            batchId: event.batchId,
+            productId,
+            eventType: event.eventType,
+            businessDate: toDbDate(event.date),
+            quantityDelta: event.quantity,
+            valueDelta: event.value,
+            sourceType: event.sourceType,
+            sourceId: event.sourceId,
+            reason: event.reason,
+            createdBy: actorUserId,
+          })),
+        });
+      }
+      await tx.product.update({
+        where: { id: productId },
+        data: { currentStock: balance.get(productId) ?? ZERO, ...poolsOf(work.state) },
+      });
+    }
+  }
+
+  /**
+   * Records which batches a delivery line's bags came from, and the share of
+   * the line's selling price each slice carries (split by bags, never by cost).
+   * `revenueTotal` is the signed change to the line's total that these slices
+   * account for. Appended, never changed.
+   */
+  async writeAllocations(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    input: {
+      deliveryItemId: string;
+      productId: string;
+      kind: 'original' | 'reversal';
+      slices: readonly Slice[];
+      revenueTotal: Prisma.Decimal;
+      allocationDate: string;
+      backfillRunId?: string;
+    },
+  ): Promise<void> {
+    if (input.slices.length === 0) return;
+    const sign = input.kind === 'reversal' ? new Prisma.Decimal(-1) : new Prisma.Decimal(1);
+    const revenue = distributeMoney(
+      input.revenueTotal,
+      input.slices.map((slice) => slice.quantity),
+    );
+    await tx.deliveryItemAllocation.createMany({
+      data: input.slices.map((slice, at) => ({
+        businessId,
+        deliveryItemId: input.deliveryItemId,
+        productId: input.productId,
+        batchId: slice.batchKey,
+        kind: input.kind,
+        quantity: slice.quantity.mul(sign),
+        unitCost: slice.unitCost,
+        costAmount: slice.costAmount === null ? null : slice.costAmount.mul(sign),
+        revenueAmount: revenue[at] ?? ZERO,
+        costKnown: slice.costAmount !== null,
+        allocationDate: toDbDate(input.allocationDate),
+        ...(input.backfillRunId ? { backfillRunId: input.backfillRunId } : {}),
+      })),
+    });
   }
 
   /** Locks product rows in id order (call before reading stock you will change). */
@@ -263,4 +561,14 @@ export class StockLedger {
       }),
     );
   }
+}
+
+/** The product's cost pools, derived from its batches (and the legacy bags that belong to none). */
+export function poolsOf(state: FifoState) {
+  const pool = costedPool(state);
+  return {
+    costedQuantity: pool.quantity,
+    costedValue: pool.value.toDecimalPlaces(6),
+    uncostedQuantity: uncostedOnHand(state),
+  };
 }

@@ -24,6 +24,7 @@ import { BusinessLedgerService } from '../accounts/business-ledger.service';
 import { Actor, PAGE_SIZE } from '../master-data/master-data.common';
 import { DealershipContext } from '../master-data/master-data.context';
 import { StockLedger, quantityString } from '../stock/stock-ledger';
+import { InventoryCostingService } from '../stock/inventory-costing.service';
 import { resolveDateRange } from '../business-dates';
 import {
   CreatePurchaseDto,
@@ -145,6 +146,7 @@ export class PurchasesService {
     private readonly counters: DocumentCounterService,
     private readonly periods: PeriodCounterService,
     private readonly ledger: StockLedger,
+    private readonly costing: InventoryCostingService,
     private readonly businessLedger: BusinessLedgerService,
     private readonly audit: AuditService,
     private readonly changes: ChangeRequestsService,
@@ -280,7 +282,7 @@ export class PurchasesService {
             sourceType: 'purchase',
             sourceId: purchase.id,
             reason: null,
-            // What the bags cost: this is what moves the weighted average.
+            // What the bags cost: this becomes the price of this purchase's own batch.
             unitCost: line.unitPrice,
           })),
         );
@@ -289,6 +291,25 @@ export class PurchasesService {
           lines.map((line) => line.productId),
           config.timezone,
         );
+        // A purchase dated in the past slots into the middle of the product's timeline:
+        // bags delivered since may now belong to it, being the oldest. The history is
+        // replayed oldest-first and any difference is booked as a correction dated today;
+        // earlier deliveries' own snapshots are never rewritten.
+        if (purchaseDate < todayIn(config.timezone)) {
+          await this.costing.recompute(
+            tx,
+            access.businessId,
+            actor.userId,
+            lines.map((line) => line.productId),
+            {
+              kind: 'backdated_entry',
+              reason: null,
+              sourceType: 'purchase',
+              sourceId: purchase.id,
+              today: todayIn(config.timezone),
+            },
+          );
+        }
         await this.periods.add(
           tx,
           PURCHASE_COUNTER_TABLE,

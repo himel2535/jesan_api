@@ -26,6 +26,10 @@ export const DEALERSHIP_TENANT_MODELS = [
   'Expense',
   'CommissionReceipt',
   'BusinessLedgerEntry',
+  'InventoryBatch',
+  'InventoryBatchEvent',
+  'DeliveryItemAllocation',
+  'InventoryBackfillRun',
 ];
 
 /**

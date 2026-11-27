@@ -53,6 +53,9 @@ import { PurchasesService } from './purchases/purchases.service';
 import { ProductStockChangeHandler } from './stock/product-stock-handler';
 import { StockLedger } from './stock/stock-ledger';
 import { InventoryCostingService } from './stock/inventory-costing.service';
+import { BatchesController } from './stock/batches.controller';
+import { BatchesService } from './stock/batches.service';
+import { FifoBackfillService } from './stock/fifo-backfill.service';
 import { StockController } from './stock/stock.controller';
 import { StockService } from './stock/stock.service';
 import { CollectionsService } from './sales/collections.service';
@@ -83,6 +86,7 @@ import {
     PurchasesController,
     PurchaseCountersController,
     StockController,
+    BatchesController,
     OrdersController,
     DeliveriesController,
     CollectionsController,
@@ -109,6 +113,8 @@ import {
     PurchasesService,
     PurchaseChangeHandler,
     StockService,
+    BatchesService,
+    FifoBackfillService,
     ProductStockChangeHandler,
     CustomerAccounts,
     OrdersService,
