@@ -46,12 +46,9 @@ interface MonthlyBody {
 }
 interface CommissionBody {
   year: number;
-  months: { month: string; calculated: string; received: string }[];
-  yearCalculated: string;
+  months: { month: string; received: string }[];
   yearReceived: string;
-  lifetimeCalculated: string;
   lifetimeReceived: string;
-  receivable: string;
 }
 
 const TODAY = todayIn('Asia/Dhaka');
@@ -233,32 +230,36 @@ describe.skipIf(!hasDatabase)('dashboard aggregates', () => {
       expect(status).toBe(403);
     });
 
-    it('records a receipt: received and receivable move by its amount, calculated does not', async () => {
-      await send(t.server, 'put', path('commission-scheme'), who('owner'), {
-        rateBase: '10.00',
-        targetQty: '100',
-        bonusRate: '0.00',
-      }).expect(200);
-      const entry = (
-        await send(t.server, 'post', path('commission-entries'), who('owner'), {
-          fromDate: TODAY,
-          toDate: TODAY,
-          quantity: '50',
-          note: 'dashboard e2e',
-        }).expect(201)
-      ).body as { id: string };
+    it('records commission received: the month, year and lifetime totals move by its amount', async () => {
       const before = (await commission()).body;
-      await send(t.server, 'post', path(`commission-entries/${entry.id}/receipts`), who('owner'), {
+      await send(t.server, 'post', path('commission-entries'), who('owner'), {
         amount: '300',
         receivedDate: TODAY,
-        reference: 'DASH-E2E',
+        note: 'DASH-E2E',
       }).expect(201);
       const after = (await commission()).body;
       const month = (body: CommissionBody) => body.months.find((row) => row.month === THIS_MONTH);
       expect(Number(month(after)?.received) - Number(month(before)?.received)).toBeCloseTo(300, 2);
-      expect(Number(month(after)?.calculated)).toBeCloseTo(Number(month(before)?.calculated), 2);
-      expect(Number(after.receivable)).toBeCloseTo(Number(before.receivable) - 300, 2);
+      expect(Number(after.yearReceived) - Number(before.yearReceived)).toBeCloseTo(300, 2);
       expect(Number(after.lifetimeReceived) - Number(before.lifetimeReceived)).toBeCloseTo(300, 2);
+      expect(after).not.toHaveProperty('receivable');
+    });
+
+    it('adds commission received to net profit for the same day', async () => {
+      const q = `?from=${TODAY}&to=${TODAY}`;
+      const profit = async () => {
+        const res = await get(t.server, path(`dashboard/finance-summary${q}`), who('owner')).expect(
+          200,
+        );
+        return Number((res.body as { netProfit: string }).netProfit);
+      };
+      const before = await profit();
+      await send(t.server, 'post', path('commission-entries'), who('owner'), {
+        amount: '700',
+        receivedDate: TODAY,
+        note: 'profit check',
+      }).expect(201);
+      expect((await profit()) - before).toBeCloseTo(700, 2);
     });
   });
 });

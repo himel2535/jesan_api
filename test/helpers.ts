@@ -208,8 +208,6 @@ export class TestData {
       'change_requests',
       'business_ledger_entries',
       'commission_receipts',
-      'commission_entries',
-      'commission_schemes',
       'expenses',
       'expense_categories',
       'collections',

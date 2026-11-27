@@ -1,48 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ParseIdPipe } from '../../../core/errors';
 import { CurrentAccess, CurrentAuth } from '../../../core/permissions/current.decorators';
 import { RequirePermission } from '../../../core/permissions/decorators';
 import { SerializeWith } from '../../../core/permissions/serialize/serialize.interceptor';
 import type { AuthContext, BusinessAccess } from '../../../core/common/request-context';
 import { CommissionService } from './commission.service';
-import {
-  CreateEntryDto,
-  CreateReceiptDto,
-  EntryListQueryDto,
-  PatchEntryDto,
-  PatchReceiptDto,
-  SuggestionQueryDto,
-  SummaryQueryDto,
-  UpsertSchemeDto,
-} from './dto/requests';
-import {
-  EntryDetailResponse,
-  EntryListResponse,
-  ReceiptResponse,
-  SchemeOrNullResponse,
-  SchemeResponse,
-  SuggestionResponse,
-  SummaryResponse,
-} from './dto/responses';
-
-@Controller('b/:businessSlug/commission-scheme')
-export class CommissionSchemeController {
-  constructor(private readonly commission: CommissionService) {}
-
-  @Get()
-  @RequirePermission('commission.view')
-  @SerializeWith(SchemeOrNullResponse)
-  async get(@CurrentAccess() access: BusinessAccess) {
-    return { scheme: await this.commission.getScheme(access) };
-  }
-
-  @Put()
-  @RequirePermission('commission.manage')
-  @SerializeWith(SchemeResponse)
-  update(@CurrentAccess() access: BusinessAccess, @Body() body: UpsertSchemeDto) {
-    return this.commission.upsertScheme(access, body);
-  }
-}
+import { CreateEntryDto, EntryListQueryDto, PatchEntryDto, SummaryQueryDto } from './dto/requests';
+import { EntryListResponse, EntryResponse, SummaryResponse } from './dto/responses';
 
 @Controller('b/:businessSlug/commission-entries')
 export class CommissionEntriesController {
@@ -57,58 +21,32 @@ export class CommissionEntriesController {
 
   @Post()
   @RequirePermission('commission.manage')
-  @SerializeWith(EntryDetailResponse)
-  create(@CurrentAccess() access: BusinessAccess, @Body() body: CreateEntryDto) {
-    return this.commission.createEntry(access, body);
-  }
-
-  @Get('suggestion')
-  @RequirePermission('commission.manage')
-  @SerializeWith(SuggestionResponse)
-  suggestion(@CurrentAccess() access: BusinessAccess, @Query() query: SuggestionQueryDto) {
-    return this.commission.suggestion(access, query.from, query.to);
+  @SerializeWith(EntryResponse)
+  create(
+    @CurrentAccess() access: BusinessAccess,
+    @CurrentAuth() auth: AuthContext,
+    @Body() body: CreateEntryDto,
+  ) {
+    return this.commission.createEntry(access, body, auth.userId);
   }
 
   @Get(':id')
   @RequirePermission('commission.view')
-  @SerializeWith(EntryDetailResponse)
+  @SerializeWith(EntryResponse)
   get(@CurrentAccess() access: BusinessAccess, @Param('id', ParseIdPipe) id: string) {
     return this.commission.getEntry(access, id);
   }
 
   @Patch(':id')
   @RequirePermission('commission.manage')
-  @SerializeWith(EntryDetailResponse)
+  @SerializeWith(EntryResponse)
   patch(
     @CurrentAccess() access: BusinessAccess,
+    @CurrentAuth() auth: AuthContext,
     @Param('id', ParseIdPipe) id: string,
     @Body() body: PatchEntryDto,
   ) {
-    return this.commission.patchEntry(access, id, body);
-  }
-
-  @Post(':entryId/receipts')
-  @RequirePermission('commission.manage')
-  @SerializeWith(ReceiptResponse)
-  createReceipt(
-    @CurrentAccess() access: BusinessAccess,
-    @CurrentAuth() auth: AuthContext,
-    @Param('entryId', ParseIdPipe) entryId: string,
-    @Body() body: CreateReceiptDto,
-  ) {
-    return this.commission.createReceipt(access, entryId, body, auth.userId);
-  }
-
-  @Patch(':entryId/receipts/:id')
-  @RequirePermission('commission.manage')
-  @SerializeWith(ReceiptResponse)
-  patchReceipt(
-    @CurrentAccess() access: BusinessAccess,
-    @Param('entryId', ParseIdPipe) entryId: string,
-    @Param('id', ParseIdPipe) id: string,
-    @Body() body: PatchReceiptDto,
-  ) {
-    return this.commission.patchReceipt(access, entryId, id, body);
+    return this.commission.patchEntry(access, id, body, auth.userId);
   }
 }
 

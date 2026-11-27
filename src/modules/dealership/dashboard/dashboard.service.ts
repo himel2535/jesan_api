@@ -253,8 +253,8 @@ export class DashboardService {
   }
 
   /**
-   * Commission by month: calculated (entries by `fromDate`) and received (receipts by
-   * `receivedDate`), kept separate. Receivable = calculated − received over all time.
+   * Commission received by month (entries by `receivedDate`), plus the year and
+   * lifetime totals.
    */
   async commissionSeries(access: BusinessAccess, query: DashboardYearQueryDto) {
     const config = await this.context.config(access.businessId);
@@ -265,56 +265,32 @@ export class DashboardService {
       lte: toDbDate(`${String(year)}-12-31`),
     };
 
-    const [entries, receipts, lifetimeEntries, lifetimeReceipts] = await Promise.all([
-      db.commissionEntry.groupBy({
-        by: ['fromDate'],
-        where: { fromDate: range },
-        _sum: { calculatedAmount: true },
-      }),
+    const [receipts, lifetimeReceipts] = await Promise.all([
       db.commissionReceipt.groupBy({
         by: ['receivedDate'],
         where: { receivedDate: range },
         _sum: { amount: true },
       }),
-      db.commissionEntry.aggregate({ _sum: { calculatedAmount: true } }),
       db.commissionReceipt.aggregate({ _sum: { amount: true } }),
     ]);
 
-    const calculatedByMonth = new Map<string, Prisma.Decimal>();
     const receivedByMonth = new Map<string, Prisma.Decimal>();
     for (let month = 1; month <= 12; month += 1) {
-      calculatedByMonth.set(monthKey(year, month), ZERO);
       receivedByMonth.set(monthKey(year, month), ZERO);
-    }
-    for (const row of entries) {
-      const key = monthKeyOf(fromDbDate(row.fromDate));
-      calculatedByMonth.set(
-        key,
-        (calculatedByMonth.get(key) ?? ZERO).add(row._sum.calculatedAmount ?? ZERO),
-      );
     }
     for (const row of receipts) {
       const key = monthKeyOf(fromDbDate(row.receivedDate));
       receivedByMonth.set(key, (receivedByMonth.get(key) ?? ZERO).add(row._sum.amount ?? ZERO));
     }
 
-    const yearCalculated = sumDecimals([...calculatedByMonth.values()]);
-    const yearReceived = sumDecimals([...receivedByMonth.values()]);
-    const lifetimeCalculated = lifetimeEntries._sum.calculatedAmount ?? ZERO;
-    const lifetimeReceived = lifetimeReceipts._sum.amount ?? ZERO;
-
     return {
       year,
-      months: [...calculatedByMonth.keys()].map((month) => ({
+      months: [...receivedByMonth.keys()].map((month) => ({
         month,
-        calculated: moneyString(calculatedByMonth.get(month) ?? ZERO),
         received: moneyString(receivedByMonth.get(month) ?? ZERO),
       })),
-      yearCalculated: moneyString(yearCalculated),
-      yearReceived: moneyString(yearReceived),
-      lifetimeCalculated: moneyString(lifetimeCalculated),
-      lifetimeReceived: moneyString(lifetimeReceived),
-      receivable: moneyString(lifetimeCalculated.sub(lifetimeReceived)),
+      yearReceived: moneyString(sumDecimals([...receivedByMonth.values()])),
+      lifetimeReceived: moneyString(lifetimeReceipts._sum.amount ?? ZERO),
     };
   }
 }
