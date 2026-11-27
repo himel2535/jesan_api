@@ -70,20 +70,14 @@ export class MonthlySeriesResponse {
 
 class CommissionSeriesRow {
   @Expose() month!: string;
-  /** Sum of entries whose fromDate falls in the month (calculated, not received). */
-  @Expose() calculated!: string;
-  /** Sum of receipts whose receivedDate falls in the month. */
+  /** Sum of commission entries whose receivedDate falls in the month. */
   @Expose() received!: string;
 }
 
 export class CommissionSeriesResponse {
   @Expose() year!: number;
   @Expose() @Type(() => CommissionSeriesRow) months!: CommissionSeriesRow[];
-  /** Calendar-year totals (entries by fromDate year, receipts by receivedDate year). */
-  @Expose() yearCalculated!: string;
+  /** Calendar-year total (receivedDate year) and the all-time total. */
   @Expose() yearReceived!: string;
-  /** Lifetime totals: receivable = calculated − received, across all years. */
-  @Expose() lifetimeCalculated!: string;
   @Expose() lifetimeReceived!: string;
-  @Expose() receivable!: string;
 }

@@ -8,32 +8,16 @@ vi.hoisted(() => {
   process.env['LOGIN_RATE_LIMIT'] = '100000';
 });
 
-interface SchemeBody {
-  rateBase: string;
-  targetQty: string;
-  bonusRate: string;
-}
 interface EntryBody {
-  id: string;
-  fromDate: string;
-  toDate: string;
-  quantity: string;
-  calculatedAmount: string;
-  receivedAmount: string;
-  pendingAmount: string;
-}
-interface ReceiptBody {
   id: string;
   amount: string;
   receivedDate: string;
+  note: string | null;
 }
 interface SummaryBody {
   year: number;
-  totalCalculated: string;
   totalReceived: string;
-  totalPending: string;
   entryCount: number;
-  receiptCount: number;
 }
 interface ErrorBody {
   code: string;
@@ -60,24 +44,12 @@ describe.skipIf(!hasDatabase)('commission', () => {
     as[name] = (await login(t.server, user.email ?? '', user.password)).cookies;
   }
 
-  const setScheme = (rateBase: string, targetQty: string, bonusRate: string, slug = shop.slug) =>
-    send(t.server, 'put', path('commission-scheme', slug), who('owner'), {
-      rateBase,
-      targetQty,
-      bonusRate,
-    });
-
-  const createEntry = (
-    quantity: string,
-    fromDate = TODAY,
-    toDate = TODAY,
-    slug = shop.slug,
-    actor = 'owner',
-  ) =>
+  const createEntry = (body: Record<string, unknown> = {}, slug = shop.slug, actor = 'owner') =>
     send(t.server, 'post', path('commission-entries', slug), who(actor), {
-      fromDate,
-      toDate,
-      quantity,
+      amount: '1000',
+      receivedDate: TODAY,
+      note: 'Monthly target bonus',
+      ...body,
     });
 
   beforeAll(async () => {
@@ -98,221 +70,130 @@ describe.skipIf(!hasDatabase)('commission', () => {
     await t.app.close();
   });
 
-  describe('scheme', () => {
-    it('is null until the owner sets it, then upserts', async () => {
-      const before = await get(t.server, path('commission-scheme'), who('owner')).expect(200);
-      expect((before.body as { scheme: SchemeBody | null }).scheme).toBeNull();
-
-      const created = await setScheme('10.00', '10', '1.00').expect(200);
-      expect(created.body).toMatchObject({
-        rateBase: '10.00',
-        targetQty: '10',
-        bonusRate: '1.00',
-      });
-
-      const replaced = await setScheme('12.00', '12000', '2.00').expect(200);
-      expect(replaced.body).toMatchObject({ rateBase: '12.00', targetQty: '12000' });
-
-      const after = await get(t.server, path('commission-scheme'), who('owner')).expect(200);
-      expect((after.body as { scheme: SchemeBody | null }).scheme).toMatchObject({
-        rateBase: '12.00',
-      });
-      // Restore a simple scheme for the rest of the tests.
-      await setScheme('10.00', '10', '1.00').expect(200);
-    });
-
-    it('validates each field with a code and the field name', async () => {
-      const zero = await setScheme('0', '10', '1.00').expect(400);
-      expect(zero.body).toMatchObject({ code: 'RATE_BASE_TOO_SMALL', field: 'rateBase' });
-      const zeroTarget = await setScheme('10.00', '0', '1.00').expect(400);
-      expect(zeroTarget.body).toMatchObject({ code: 'TARGET_QTY_TOO_SMALL', field: 'targetQty' });
-      // bonusRate may be zero (base only); the pattern itself refuses a negative.
-      await setScheme('10.00', '10', '0').expect(200);
-      await setScheme('10.00', '10', '1.00').expect(200);
-    });
-
-    it('is owner-only for both view and manage, even for the business owner role', async () => {
-      await get(t.server, path('commission-scheme'), who('manager')).expect(403);
-      await get(t.server, path('commission-scheme'), who('ownerRole')).expect(403);
-      await send(t.server, 'put', path('commission-scheme'), who('manager'), {
-        rateBase: '5.00',
-        targetQty: '1',
-        bonusRate: '0.50',
-      }).expect(403);
-      await send(t.server, 'put', path('commission-scheme'), who('ownerRole'), {
-        rateBase: '5.00',
-        targetQty: '1',
-        bonusRate: '0.50',
-      }).expect(403);
-    });
-  });
-
   describe('entries', () => {
-    it('refuses to create an entry before a scheme exists', async () => {
-      const fresh = await data.createBusiness('commission-noscheme');
-      await data.giveAccess((await data.createUser({ name: 'x' })).id, fresh.id, 'owner');
-      const response = await createEntry('15', TODAY, TODAY, fresh.slug);
-      expect(response.status).toBe(400);
-      expect(response.body as ErrorBody).toMatchObject({ code: 'COMMISSION_SCHEME_NOT_SET' });
-    });
-
-    it('calculates base + bonus from the current scheme (15 at target 10 → 155.00)', async () => {
-      const response = await createEntry('15').expect(201);
-      const body = response.body as EntryBody;
+    it('records the amount, date and reason exactly as typed, with no calculation', async () => {
+      const res = await createEntry({ amount: '2500.50', note: 'Festival bonus' }).expect(201);
+      const body = res.body as EntryBody;
       expect(body).toMatchObject({
-        fromDate: TODAY,
-        toDate: TODAY,
-        quantity: '15',
-        calculatedAmount: '155.00',
-        receivedAmount: '0.00',
-        pendingAmount: '155.00',
+        amount: '2500.50',
+        receivedDate: TODAY,
+        note: 'Festival bonus',
       });
+      expect(body).not.toHaveProperty('calculatedAmount');
+      const read = await get(t.server, path(`commission-entries/${body.id}`), who('owner')).expect(
+        200,
+      );
+      expect((read.body as EntryBody).amount).toBe('2500.50');
     });
 
-    it('recalculates on patch when the quantity changes', async () => {
-      const created = (await createEntry('8').expect(201)).body as EntryBody;
-      expect(created.calculatedAmount).toBe('80.00');
+    it('requires a reason and a positive amount, with the field name', async () => {
+      const noNote = await createEntry({ note: '   ' }).expect(400);
+      expect((noNote.body as ErrorBody).code).toBe('VALIDATION_FAILED');
+      await createEntry({ note: undefined }).expect(400);
+      const zero = await createEntry({ amount: '0' }).expect(400);
+      expect(zero.body).toMatchObject({ code: 'AMOUNT_TOO_SMALL', field: 'amount' });
+      await createEntry({ amount: 'abc' }).expect(400);
+    });
+
+    it('refuses a future or invalid date', async () => {
+      const future = await createEntry({ receivedDate: addDays(TODAY, 2) }).expect(400);
+      expect(future.body).toMatchObject({
+        code: 'COMMISSION_DATE_IN_FUTURE',
+        field: 'receivedDate',
+      });
+      const bad = await createEntry({ receivedDate: '2026-02-31' }).expect(400);
+      expect(bad.body).toMatchObject({ code: 'COMMISSION_DATE_INVALID', field: 'receivedDate' });
+    });
+
+    it('patches only the changed fields and keeps the ledger in step (net profit follows)', async () => {
+      const entry = (await createEntry({ amount: '400' }).expect(201)).body as EntryBody;
       const patched = await send(
         t.server,
         'patch',
-        path(`commission-entries/${created.id}`),
+        path(`commission-entries/${entry.id}`),
         who('owner'),
-        { quantity: '20' },
+        { amount: '450', note: 'Corrected' },
       ).expect(200);
-      expect((patched.body as EntryBody).calculatedAmount).toBe('210.00');
+      expect(patched.body).toMatchObject({ amount: '450.00', note: 'Corrected' });
+      const rows = await t.prisma.client.businessLedgerEntry.findMany({
+        where: { businessId: shop.id, referenceType: 'commission_receipt', referenceId: entry.id },
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.amount.toFixed(2)).toBe('450.00');
+      expect(rows[0]?.direction).toBe('in');
+      expect(rows[0]?.method).toBeNull();
     });
 
-    it('refuses an invalid or future date range', async () => {
-      const future = await createEntry('5', addDays(TODAY, 1), addDays(TODAY, 1));
-      expect(future.status).toBe(400);
-      expect((future.body as ErrorBody).code).toBe('COMMISSION_DATE_IN_FUTURE');
-      const reversed = await createEntry('5', TODAY, addDays(TODAY, -5));
-      expect(reversed.status).toBe(400);
-      expect((reversed.body as ErrorBody).code).toBe('COMMISSION_DATE_RANGE_INVALID');
+    it('posts an `in` / commission_receipt ledger row when created', async () => {
+      const entry = (await createEntry({ amount: '120' }).expect(201)).body as EntryBody;
+      const rows = await t.prisma.client.businessLedgerEntry.findMany({
+        where: { businessId: shop.id, referenceId: entry.id },
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ type: 'commission_receipt', direction: 'in' });
+    });
+
+    it('lists newest first, ten a page', async () => {
+      const res = await get(t.server, path('commission-entries'), who('owner')).expect(200);
+      const body = res.body as { items: EntryBody[]; pageSize: number; total: number };
+      expect(body.pageSize).toBe(10);
+      expect(body.total).toBeGreaterThan(0);
+      const dates = body.items.map((item) => item.receivedDate);
+      expect([...dates].sort().reverse()).toEqual(dates);
     });
 
     it('404s for a missing entry and another business’s entry', async () => {
-      const missing = await get(
-        t.server,
-        path('commission-entries/00000000-0000-7000-8000-000000000000'),
-        who('owner'),
-      ).expect(404);
-      expect((missing.body as ErrorBody).code).toBe('COMMISSION_ENTRY_NOT_FOUND');
-      const created = (await createEntry('5').expect(201)).body as EntryBody;
-      const otherUser = await data.createUser({ name: 'other' });
-      await data.giveAccess(otherUser.id, other.id, 'owner');
-      await setScheme('1.00', '1', '0.00', other.slug);
-      const theirs = await get(
-        t.server,
-        path(`commission-entries/${created.id}`, other.slug),
-        who('otherOwner'),
-      ).expect(404);
-      expect(theirs.body).toEqual(missing.body);
-    });
-  });
-
-  describe('purchase suggestion', () => {
-    it('sums active purchases in the date range, excluding void ones', async () => {
-      const category = (
-        (
-          await send(t.server, 'post', path('product-categories'), who('owner'), {
-            nameEn: 'OPC',
-            nameBn: 'ওপিসি',
-          }).expect(201)
-        ).body as { id: string }
-      ).id;
-      const product = (
-        (
-          await send(t.server, 'post', path('products'), who('owner'), {
-            categoryId: category,
-            nameEn: 'Cement',
-            nameBn: 'সিমেন্ট',
-          }).expect(201)
-        ).body as { id: string }
-      ).id;
-      await send(t.server, 'post', path('purchases'), who('owner'), {
-        items: [{ productId: product, quantity: '100', unitPrice: '10' }],
-      }).expect(201);
-      const response = await get(
-        t.server,
-        path(`commission-entries/suggestion?from=${TODAY}&to=${TODAY}`),
-        who('owner'),
-      ).expect(200);
-      expect(Number((response.body as { quantity: string }).quantity)).toBeGreaterThanOrEqual(100);
-    });
-  });
-
-  describe('receipts', () => {
-    it('updates the entry’s receivedAmount/pendingAmount and supports editing', async () => {
-      const entry = (await createEntry('10').expect(201)).body as EntryBody; // 10 * 10 = 100.00
-      const receipt = (
-        await send(
-          t.server,
-          'post',
-          path(`commission-entries/${entry.id}/receipts`),
-          who('owner'),
-          { amount: '40.00', receivedDate: TODAY, reference: 'AK-1' },
-        ).expect(201)
-      ).body as ReceiptBody;
-      expect(receipt).toMatchObject({ amount: '40.00', receivedDate: TODAY });
-
-      const afterOne = (
-        await get(t.server, path(`commission-entries/${entry.id}`), who('owner')).expect(200)
-      ).body as EntryBody;
-      expect(afterOne).toMatchObject({ receivedAmount: '40.00', pendingAmount: '60.00' });
-
+      const theirs = (await createEntry({}, shop.slug).expect(201)).body as EntryBody;
+      await get(t.server, path(`commission-entries/${theirs.id}`, other.slug), who('owner')).expect(
+        404,
+      );
       await send(
         t.server,
         'patch',
-        path(`commission-entries/${entry.id}/receipts/${receipt.id}`),
+        path('commission-entries/00000000-0000-7000-8000-000000000999'),
         who('owner'),
-        { amount: '100.00' },
-      ).expect(200);
+        { note: 'x' },
+      ).expect(404);
+    });
+  });
 
-      const afterEdit = (
-        await get(t.server, path(`commission-entries/${entry.id}`), who('owner')).expect(200)
-      ).body as EntryBody;
-      expect(afterEdit).toMatchObject({ receivedAmount: '100.00', pendingAmount: '0.00' });
+  describe('permissions', () => {
+    it('is owner-only for both view and manage, even for the business owner role', async () => {
+      for (const who_ of ['ownerRole', 'manager']) {
+        await get(t.server, path('commission-entries'), who(who_)).expect(403);
+        await createEntry({}, shop.slug, who_).expect(403);
+        await get(t.server, path('commission-summary?year=2026'), who(who_)).expect(403);
+      }
+      await get(t.server, path('commission-entries'), who('owner')).expect(200);
     });
 
-    it('404s a receipt not belonging to the entry', async () => {
-      const entryA = (await createEntry('1').expect(201)).body as EntryBody;
-      const entryB = (await createEntry('1').expect(201)).body as EntryBody;
-      const receipt = (
-        await send(
-          t.server,
-          'post',
-          path(`commission-entries/${entryA.id}/receipts`),
-          who('owner'),
-          { amount: '1.00', receivedDate: TODAY },
-        ).expect(201)
-      ).body as ReceiptBody;
-      const response = await send(
+    it('no longer has a scheme, suggestion or receipts endpoint', async () => {
+      await get(t.server, path('commission-scheme'), who('owner')).expect(404);
+      await get(
         t.server,
-        'patch',
-        path(`commission-entries/${entryB.id}/receipts/${receipt.id}`),
+        path(`commission-entries/suggestion?from=${TODAY}&to=${TODAY}`),
         who('owner'),
-        { amount: '2.00' },
-      ).expect(404);
-      expect((response.body as ErrorBody).code).toBe('COMMISSION_RECEIPT_NOT_FOUND');
+      ).expect(400); // "suggestion" is now read as an :id
     });
   });
 
   describe('summary', () => {
-    it('sums calculated and received amounts for the year', async () => {
+    it('sums the amounts received in the year', async () => {
       const year = Number(TODAY.slice(0, 4));
-      const response = await get(
-        t.server,
-        path(`commission-summary?year=${String(year)}`),
-        who('owner'),
-      ).expect(200);
-      const body = response.body as SummaryBody;
-      expect(body.year).toBe(year);
-      expect(Number(body.totalCalculated)).toBeGreaterThan(0);
-      expect(Number(body.totalPending)).toBe(
-        Number(body.totalCalculated) - Number(body.totalReceived),
-      );
-      expect(body.entryCount).toBeGreaterThan(0);
+      const before = (
+        await get(t.server, path(`commission-summary?year=${String(year)}`), who('owner')).expect(
+          200,
+        )
+      ).body as SummaryBody;
+      await createEntry({ amount: '300' }).expect(201);
+      const after = (
+        await get(t.server, path(`commission-summary?year=${String(year)}`), who('owner')).expect(
+          200,
+        )
+      ).body as SummaryBody;
+      expect(after.entryCount).toBe(before.entryCount + 1);
+      expect(Number(after.totalReceived) - Number(before.totalReceived)).toBeCloseTo(300, 2);
+      expect(after).not.toHaveProperty('totalCalculated');
     });
   });
 });
