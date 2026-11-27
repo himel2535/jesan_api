@@ -1,12 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client';
-import { fromDbDate, toDbDate, todayIn } from '../../../core/common/business-time';
+import { fromDbDate, isCalendarDate, toDbDate, todayIn } from '../../../core/common/business-time';
+import { badRequest } from '../../../core/errors';
 import { moneyString } from '../../../core/common/money';
 import { BusinessAccess } from '../../../core/common/request-context';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { resolveDateRange } from '../business-dates';
+import { resolveDateRange, type DateRange } from '../business-dates';
 import { DealershipContext } from '../master-data/master-data.context';
-import { DashboardCashbookQueryDto, DashboardYearQueryDto } from './dto/requests';
+import {
+  DashboardCashbookQueryDto,
+  DashboardKpisQueryDto,
+  DashboardYearQueryDto,
+} from './dto/requests';
 import {
   monthKey,
   monthKeyOf,
@@ -72,6 +77,26 @@ export class DashboardService {
       unassigned: view(buckets.unassigned),
       availableCashAndBank: moneyString(closingOf(buckets.cash).add(closingOf(buckets.bank))),
     };
+  }
+
+  /**
+   * The KPI cards' four figures (collection, sales, bags sold, bags bought) for one window and,
+   * when `prevFrom`/`prevTo` are sent, a comparison window. Each figure is one indexed aggregate
+   * over active rows, and the windows run in parallel, so one request replaces what used to be a
+   * paginated report call per figure.
+   * Codes: `PREV_FROM_REQUIRED` / `PREV_TO_REQUIRED` / `PREV_FROM_INVALID` / `PREV_TO_INVALID`.
+   */
+  async kpis(access: BusinessAccess, query: DashboardKpisQueryDto) {
+    const config = await this.context.config(access.businessId);
+    const current = resolveDateRange(query, config.timezone);
+    const previous = resolvePreviousRange(query);
+    const db = this.prisma.forBusiness(access.businessId);
+
+    const [now, before] = await Promise.all([
+      kpiWindow(db, current),
+      previous ? kpiWindow(db, previous) : Promise.resolve(null),
+    ]);
+    return { current: now, previous: before };
   }
 
   /**
@@ -293,6 +318,56 @@ export class DashboardService {
       lifetimeReceived: moneyString(lifetimeReceipts._sum.amount ?? ZERO),
     };
   }
+}
+
+/** The comparison window of a KPI request, or `null` when none was asked for. */
+function resolvePreviousRange(query: {
+  prevFrom?: string | undefined;
+  prevTo?: string | undefined;
+}): DateRange | null {
+  const { prevFrom, prevTo } = query;
+  if (prevFrom === undefined && prevTo === undefined) {
+    return null;
+  }
+  if (prevFrom === undefined) {
+    throw badRequest('PREV_FROM_REQUIRED', 'prevFrom is needed together with prevTo', 'prevFrom');
+  }
+  if (prevTo === undefined) {
+    throw badRequest('PREV_TO_REQUIRED', 'prevTo is needed together with prevFrom', 'prevTo');
+  }
+  if (!isCalendarDate(prevFrom)) {
+    throw badRequest('PREV_FROM_INVALID', 'Not a real date', 'prevFrom');
+  }
+  if (!isCalendarDate(prevTo) || prevTo < prevFrom) {
+    throw badRequest('PREV_TO_INVALID', 'Not a real date, or before prevFrom', 'prevTo');
+  }
+  return { from: prevFrom, to: prevTo };
+}
+
+async function kpiWindow(db: ReturnType<PrismaService['forBusiness']>, range: DateRange) {
+  const dates = { gte: toDbDate(range.from), lte: toDbDate(range.to) };
+  const [collections, deliveries, purchases] = await Promise.all([
+    db.collection.aggregate({
+      where: { status: 'active', collectionDate: dates },
+      _sum: { amount: true },
+    }),
+    db.delivery.aggregate({
+      where: { status: 'active', deliveryDate: dates },
+      _sum: { totalAmount: true, totalQuantity: true },
+    }),
+    db.purchase.aggregate({
+      where: { status: 'active', purchaseDate: dates },
+      _sum: { totalQuantity: true },
+    }),
+  ]);
+  return {
+    from: range.from,
+    to: range.to,
+    collection: moneyString(collections._sum.amount ?? ZERO),
+    sales: moneyString(deliveries._sum.totalAmount ?? ZERO),
+    salesQuantity: (deliveries._sum.totalQuantity ?? ZERO).toFixed(3),
+    purchaseQuantity: (purchases._sum.totalQuantity ?? ZERO).toFixed(3),
+  };
 }
 
 function toLedgerRows(

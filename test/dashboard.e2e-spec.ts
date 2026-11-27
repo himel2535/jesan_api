@@ -44,6 +44,18 @@ interface MonthlyBody {
     purchaseAmount?: string;
   }[];
 }
+interface KpiWindowBody {
+  from: string;
+  to: string;
+  collection: string;
+  sales: string;
+  salesQuantity: string;
+  purchaseQuantity?: string;
+}
+interface KpisBody {
+  current: KpiWindowBody;
+  previous: KpiWindowBody | null;
+}
 interface CommissionBody {
   year: number;
   months: { month: string; received: string }[];
@@ -121,6 +133,7 @@ describe.skipIf(!hasDatabase)('dashboard aggregates', () => {
     await member('owner', null);
     await member('manager', 'manager');
     await member('salesman', 'salesman');
+    await member('accountant', 'accountant');
     const seeded = (await get(t.server, path('expense-categories'), who('owner')).expect(200))
       .body as { items: { id: string; nameEn: string }[] };
     salary = seeded.items.find((row) => row.nameEn === 'Salary')?.id ?? '';
@@ -221,6 +234,93 @@ describe.skipIf(!hasDatabase)('dashboard aggregates', () => {
     it('rejects a year outside the supported range with 400', async () => {
       const { status } = await monthly('owner', '?year=1999');
       expect(status).toBe(400);
+    });
+  });
+
+  describe('kpis', () => {
+    const kpis = async (who_ = 'owner', query = `?from=${THIS_MONTH}-01&to=${TODAY}`) =>
+      (await get(t.server, path(`dashboard/kpis${query}`), who(who_))) as {
+        status: number;
+        body: KpisBody & { code?: string; field?: string };
+      };
+
+    it('matches the collection, sales and purchase reports for the same window', async () => {
+      const window = `from=${THIS_MONTH}-01&to=${TODAY}`;
+      const { body } = await kpis('owner', `?${window}`);
+      const collections = (
+        await get(
+          t.server,
+          path(`reports/collections?groupBy=date&${window}&page=1`),
+          who('owner'),
+        ).expect(200)
+      ).body as { totalAmount: string };
+      const sales = (
+        await get(
+          t.server,
+          path(`reports/sales?groupBy=date&${window}&page=1`),
+          who('owner'),
+        ).expect(200)
+      ).body as { totalAmount: string; totalQuantity: string };
+      const purchases = (
+        await get(t.server, path(`purchases/summary?${window}`), who('owner')).expect(200)
+      ).body as { totalQuantity: string };
+      expect(body.current.collection).toBe(collections.totalAmount);
+      expect(body.current.sales).toBe(sales.totalAmount);
+      expect(Number(body.current.salesQuantity)).toBeCloseTo(Number(sales.totalQuantity), 3);
+      expect(Number(body.current.purchaseQuantity)).toBeCloseTo(Number(purchases.totalQuantity), 3);
+      expect(body.previous).toBeNull();
+    });
+
+    it('a new collection moves only the window that contains it', async () => {
+      const yesterday = new Date(`${TODAY}T00:00:00.000Z`);
+      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+      const day = yesterday.toISOString().slice(0, 10);
+      const query = `?from=${TODAY}&to=${TODAY}&prevFrom=${day}&prevTo=${day}`;
+      const before = (await kpis('owner', query)).body;
+      const id = await customer();
+      await post('owner', 'collections', { customerId: id, method: 'cash', amount: '125' }).expect(
+        201,
+      );
+      const after = (await kpis('owner', query)).body;
+      expect(Number(after.current.collection) - Number(before.current.collection)).toBeCloseTo(
+        125,
+        2,
+      );
+      expect(after.previous?.collection).toBe(before.previous?.collection);
+      expect(after.previous?.from).toBe(day);
+    });
+
+    it('hides bags bought from someone without purchase.view, but still answers', async () => {
+      const accountant = await kpis('accountant');
+      expect(accountant.status).toBe(200);
+      expect(accountant.body.current.collection).toBeDefined();
+      expect(accountant.body.current.purchaseQuantity).toBeUndefined();
+      expect((await kpis('manager')).body.current.purchaseQuantity).toBeDefined();
+    });
+
+    it('is forbidden to a salesman who lacks report.view', async () => {
+      expect((await kpis('salesman')).status).toBe(403);
+    });
+
+    it('rejects a half-sent or invalid comparison window with the documented code', async () => {
+      const half = await kpis('owner', `?from=${TODAY}&to=${TODAY}&prevFrom=${TODAY}`);
+      expect([half.status, half.body.code, half.body.field]).toEqual([
+        400,
+        'PREV_TO_REQUIRED',
+        'prevTo',
+      ]);
+      const other = await kpis('owner', `?from=${TODAY}&to=${TODAY}&prevTo=${TODAY}`);
+      expect([other.status, other.body.code]).toEqual([400, 'PREV_FROM_REQUIRED']);
+      const backwards = await kpis(
+        'owner',
+        `?from=${TODAY}&to=${TODAY}&prevFrom=${TODAY}&prevTo=2000-01-01`,
+      );
+      expect([backwards.status, backwards.body.code]).toEqual([400, 'PREV_TO_INVALID']);
+      const notReal = await kpis(
+        'owner',
+        `?from=${TODAY}&to=${TODAY}&prevFrom=2026-02-30&prevTo=2026-03-01`,
+      );
+      expect([notReal.status, notReal.body.code]).toEqual([400, 'PREV_FROM_INVALID']);
     });
   });
 

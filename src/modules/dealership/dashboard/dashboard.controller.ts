@@ -4,11 +4,16 @@ import { CurrentAccess } from '../../../core/permissions/current.decorators';
 import { RequirePermission } from '../../../core/permissions/decorators';
 import { SerializeWith } from '../../../core/permissions/serialize/serialize.interceptor';
 import { DashboardService } from './dashboard.service';
-import { DashboardCashbookQueryDto, DashboardYearQueryDto } from './dto/requests';
+import {
+  DashboardCashbookQueryDto,
+  DashboardKpisQueryDto,
+  DashboardYearQueryDto,
+} from './dto/requests';
 import {
   CashbookResponse,
   CommissionSeriesResponse,
   FinanceSummaryResponse,
+  KpisResponse,
   MonthlySeriesResponse,
 } from './dto/responses';
 
@@ -35,6 +40,17 @@ export class DashboardController {
     @Query() query: DashboardCashbookQueryDto,
   ) {
     return this.dashboard.financeSummary(access, query);
+  }
+
+  /**
+   * The dashboard KPI cards' four figures for one window (and a comparison window) in a single
+   * call, instead of one report call per figure and window.
+   */
+  @Get('kpis')
+  @RequirePermission('report.view')
+  @SerializeWith(KpisResponse)
+  kpis(@CurrentAccess() access: BusinessAccess, @Query() query: DashboardKpisQueryDto) {
+    return this.dashboard.kpis(access, query);
   }
 
   @Get('monthly-series')
