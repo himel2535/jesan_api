@@ -571,7 +571,7 @@ Branch `claude/step-6-expenses-cashbook-reports`; প্ল্যান `docs/pl
 - বিক্রয়-পণ্য/ক্যাটাগরি রিপোর্ট তুলনামূলক ধীর (৭৬-১০১ ms) কারণ `delivery_items` থেকে প্রথমে productId ধরে `groupBy`, তারপর products/categories আলাদা `findMany`; তবু লক্ষ্যের অনেক নিচে, আর তালিকায় `_count` ব্যবহার করা হয়নি।
 - `npm run consistency:check` perf ডাটাবেসে সবুজ (ক্যাশ-বইয়ের নতুন পরীক্ষাসহ)।
 
-## ২০২৬-১১-২০: Akij কমিশন scheme, entry ও receipt (Step 7, স্বয়ংক্রিয় মোড)
+## ২০২৬-১১-২০: Akij কমিশন scheme, entry ও receipt (Step 7, স্বয়ংক্রিয় মোড) **[আংশিক বাতিল ২০২৬-১১-২৭: scheme, calculatedAmount, আলাদা receipts ও `receivable` আর নেই; নিচের "কমিশন সরল" দেখো।]**
 
 `commission.view`/`commission.manage` আগে থেকেই registry-তে ঘোষিত ছিল (উভয়ই `ownerOnly`); এই step-এ শুধু তার টাকার হিসাব আর CRUD বানানো হলো। BSRM-এর জন্য commission module আলাদা থাকবে; এটা শুধু Akij Cement।
 
@@ -647,7 +647,7 @@ Frontend dashboard-এর "Top 5 Customers" widget-এর জন্য গ্র
 
 - `GET dashboard/cashbook`: খাতা (`business_ledger_entries`) থেকে সরাসরি; নগদ/ব্যাংক/পদ্ধতিহীন তিনটা আলাদা বালতি, যাতে তিনটার যোগফল পুরো খাতার সমান থাকে। পদ্ধতিহীন সারি (কমিশন রসিদ) কখনো নগদ বা ব্যাংকে যোগ হয় না। বিদ্যমান `cash-book` endpoint অপরিবর্তিত (সেটা শুধু আদায়/খরচ/নগদ কেনা গোনে)।
 - `GET dashboard/monthly-series`: বছরের প্রতিটা তারিখের জন্য একটা `GROUP BY` (সর্বোচ্চ ৩৬৬ সারি), মাসে ভাগ JavaScript-এ `Decimal`-এ। কেনার টাকা `@VisibleWith('product.cost.view')` দিয়ে সার্ভারে লুকানো।
-- `GET dashboard/commission-series`: owner-only (`commission.view`)। হিসাব হওয়া কমিশন এন্ট্রির `fromDate`-এর মাসে, পাওয়া কমিশন রসিদের `receivedDate`-এর মাসে; আলাদা রাখা, মেশানো হয় না। `receivable` = সব সময়ের হিসাব হওয়া − পাওয়া।
+- `GET dashboard/commission-series`: owner-only (`commission.view`)। হিসাব হওয়া কমিশন এন্ট্রির `fromDate`-এর মাসে, পাওয়া কমিশন রসিদের `receivedDate`-এর মাসে; আলাদা রাখা, মেশানো হয় না। `receivable` = সব সময়ের হিসাব হওয়া − পাওয়া। **[আংশিক বাতিল ২০২৬-১১-২৭: scheme, calculatedAmount, আলাদা receipts ও `receivable` আর নেই; নিচের "কমিশন সরল" দেখো।]**
 - স্কিমা বা বিদ্যমান কোনো হিসাব বদলানো হয়নি; অনুমতি নতুন নেই (বিদ্যমান `cashbook.view`, `report.view`, `commission.view` ব্যবহৃত)।
 - স্থানীয় যাচাই PostgreSQL 16 দিয়ে (CI-তে 18); সব migration প্রয়োগ, `db:check` কোনো পার্থক্য দেখায়নি।
 
