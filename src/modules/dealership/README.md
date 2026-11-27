@@ -4,7 +4,7 @@
 
 ## দায়িত্ব (পরের Phase-গুলোতে আসবে)
 
-Product ও Category, Customer, Supplier, Buy, Sell, Stock, Due collection, Commission scheme ও progress, এবং এই module-এর manifest (sidebar মেনু, permission, dashboard summary provider)।
+Product ও Category, Customer, Supplier, Buy, Sell, Stock, Due collection, Commission (পাওয়া টাকা ও কারণ), এবং এই module-এর manifest (sidebar মেনু, permission, dashboard summary provider)।
 
 ## নিয়ম
 
